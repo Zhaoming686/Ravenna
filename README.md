@@ -26,7 +26,7 @@ We build our algorithm based on the PVLDB paper [Mix & Match: Subgraph Matching 
 |   DSQL+   | Optimized Diversified Subgraph Query | `DSQLPDIV`     |
 |   MATCO   | MatCo                                | `MATCODIV`     |
 
-For other options, please refer to the original [Mix & Match code](https://github.com/constantinosskitsas/Mix-Match).
+For options for filtering method and ordering method, please refer to the original [Mix & Match code](https://github.com/constantinosskitsas/Mix-Match).
 
 ## Build
 
