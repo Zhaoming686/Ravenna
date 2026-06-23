@@ -1,0 +1,8 @@
+# build directories
+test1/*
+cmake-build-*/
+
+# datasets and output
+datasets/*
+case_study/*
+outputs*/

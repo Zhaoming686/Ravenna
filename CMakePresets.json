@@ -1,0 +1,24 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "run-test-release",
+      "displayName": "run Release",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/test1",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "/opt/software/gcc/13.2.0/bin/gcc",
+        "CMAKE_CXX_COMPILER": "/opt/software/gcc/13.2.0/bin/g++",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "run-test-release",
+      "configurePreset": "run-test-release",
+      "jobs": 4
+    }
+  ]
+}
