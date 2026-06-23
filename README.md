@@ -30,7 +30,7 @@ For options for filtering method and ordering method, please refer to the origin
 
 ## Build
 
-Within the `vlabel` directory, create a build directory and compile the source code:
+Create a build directory and compile the source code:
 
 ```zsh
 mkdir build && cd build
