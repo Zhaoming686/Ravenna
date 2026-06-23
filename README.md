@@ -7,13 +7,13 @@ We build our algorithm based on the PVLDB paper [Mix & Match: Subgraph Matching 
 
 ## Commands
 
-|   Option  | Description                                                                                        | Example                                                                                                                                                           |
-| :-------: | :------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-|    `-d`   | Path to the input data graph.                                                                      | `/datasets/original/data_graph/patents.graph`                                                                                                                     |
-|    `-q`   | Path to the input query graph.                                                                     | `/datasets/original/query_graph/patents/query_G_12_1.graph`                                                                                                       |
-| `-engine` | Supported algorithm.                                                                               | `Ravenna`                                                                                                                                                         |
-|  `-time`  | Running time limit for enumeration, in seconds.                                                    | `2`                                                                                                                                                               |
-|   `-tau`  | Utilization thresholds. This can be either a single value or a comma-separated list. | `0.2` means 20% for each label. `0.1,0.2,0.3` means 10% for label 0, 20% for label 1, and 30% for label 2. The list size should be equal to the number of labels. |
+| Option | Description | Example |
+| :---: | :--- | :--- |
+| `-d` | Path to the input data graph. | `/datasets/original/data_graph/dblp.graph` |
+| `-q` | Path to the input query graph. | `/datasets/original/query_graph/dblp/query_G_12_1.graph` |
+| `-engine` | Supported algorithm. | `Ravenna` |
+| `-time` | Running time limit for enumeration, in seconds. | `2` |
+| `-tau` | Utilization thresholds. This can be either a single value or a comma-separated list. | `0.2`: 20% for each label.<br>`0.1,0.2,0.3`: 10% for label 0, 20% for label 1, and 30% for label 2.<br>The list size should be equal to the number of labels. |
 
 ## Supported Algorithms
 
