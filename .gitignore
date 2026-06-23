@@ -6,3 +6,4 @@ cmake-build-*/
 datasets/*
 case_study/*
 outputs*/
+datasets.zip
