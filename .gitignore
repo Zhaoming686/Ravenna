@@ -4,6 +4,17 @@ cmake-build-*/
 
 # datasets and output
 datasets/*
+!datasets/original/
+datasets/original/*
+!datasets/original/data_graph/
+datasets/original/data_graph/*
+!datasets/original/data_graph/dblp.graph
+!datasets/original/query_graph/
+datasets/original/query_graph/*
+!datasets/original/query_graph/dblp/
+datasets/original/query_graph/dblp/*
+!datasets/original/query_graph/dblp/query_G_24_*.graph
+
 case_study/*
 outputs*/
 datasets.zip
