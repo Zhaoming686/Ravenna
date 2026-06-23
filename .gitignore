@@ -1,5 +1,5 @@
 # build directories
-test1/*
+build*/
 cmake-build-*/
 
 # datasets and output

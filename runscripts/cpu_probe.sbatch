@@ -6,12 +6,12 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=1G
 #SBATCH --time=00:05:00
-#SBATCH --output=/home/cbr406/Projects/Mix-Match/SubgraphMatchingSurvey-main/vlabel/outputs/logs/%x-%j.out
-#SBATCH --error=/home/cbr406/Projects/Mix-Match/SubgraphMatchingSurvey-main/vlabel/outputs/logs/%x-%j.err
+#SBATCH --output=/home/cbr406/Projects/Ravenna/outputs/logs/%x-%j.out
+#SBATCH --error=/home/cbr406/Projects/Ravenna/outputs/logs/%x-%j.err
 
 set -euo pipefail
 
-BASE="/home/cbr406/Projects/Mix-Match/SubgraphMatchingSurvey-main/vlabel"
+BASE="/home/cbr406/Projects/Ravenna"
 LOG_DIR="$BASE/outputs/logs"
 OUT_DIR="$BASE/outputs/cpu_probe"
 

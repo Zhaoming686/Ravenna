@@ -16,7 +16,7 @@
     {
       "label": "run SubgraphMatching",
       "type": "process",
-      "command": "${workspaceFolder}/test1/matching/SubgraphMatching.out",
+      "command": "${workspaceFolder}/build1/matching/SubgraphMatching.out",
       "args": [
         "-d",
         "${workspaceFolder}/datasets/original/data_graph/patents.graph",

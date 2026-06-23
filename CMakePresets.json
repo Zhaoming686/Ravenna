@@ -5,7 +5,7 @@
       "name": "run-test-release",
       "displayName": "run Release",
       "generator": "Unix Makefiles",
-      "binaryDir": "${sourceDir}/test1",
+      "binaryDir": "${sourceDir}/build1",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_C_COMPILER": "/opt/software/gcc/13.2.0/bin/gcc",

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE="/home/cbr406/Projects/Mix-Match/SubgraphMatchingSurvey-main/vlabel"
+BASE="/home/cbr406/Projects/Ravenna"
 LOG_DIR="$BASE/outputs/logs"
 OUT_DIR="$BASE/outputs/cpu_probe"
 RESULT_TSV="$OUT_DIR/cpu_config.tsv"

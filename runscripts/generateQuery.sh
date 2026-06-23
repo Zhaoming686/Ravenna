@@ -6,12 +6,12 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
 #SBATCH --time=04:00:00
-#SBATCH --output=/home/cbr406/Projects/Mix-Match/SubgraphMatchingSurvey-main/vlabel/outputs/logs/%x-%j.out
-#SBATCH --error=/home/cbr406/Projects/Mix-Match/SubgraphMatchingSurvey-main/vlabel/outputs/logs/%x-%j.err
+#SBATCH --output=/home/cbr406/Projects/Ravenna/outputs/logs/%x-%j.out
+#SBATCH --error=/home/cbr406/Projects/Ravenna/outputs/logs/%x-%j.err
 
 set -euo pipefail
 
-BASE="/home/cbr406/Projects/Mix-Match/SubgraphMatchingSurvey-main/vlabel"
+BASE="/home/cbr406/Projects/Ravenna"
 mkdir -p "$BASE/outputs/logs"
 
 # GCC 13.2.0 runtime

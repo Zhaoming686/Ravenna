@@ -1,17 +1,17 @@
 #!/bin/bash
 #SBATCH -p gpu
-#SBATCH --job-name=mixmatch_batch
+#SBATCH --job-name=ravenna_batch
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
 #SBATCH --time=40:00:00
-#SBATCH --output=/home/cbr406/Projects/Mix-Match/SubgraphMatchingSurvey-main/vlabel/outputs/logs/%x-%A_%a.out
-#SBATCH --error=/home/cbr406/Projects/Mix-Match/SubgraphMatchingSurvey-main/vlabel/outputs/logs/%x-%A_%a.err
+#SBATCH --output=/home/cbr406/Projects/Ravenna/outputs/logs/%x-%A_%a.out
+#SBATCH --error=/home/cbr406/Projects/Ravenna/outputs/logs/%x-%A_%a.err
 
 set -euo pipefail
 
-BASE="/home/cbr406/Projects/Mix-Match/SubgraphMatchingSurvey-main/vlabel"
+BASE="/home/cbr406/Projects/Ravenna"
 cd "$BASE"
 
 mkdir -p "$BASE/outputs/logs"
