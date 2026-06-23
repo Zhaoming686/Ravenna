@@ -107,11 +107,11 @@ public:
     }
 
     std::string getEnableSymmetry() {
-        return options_value[OptionKeyword::EnableSymmetry] == "" ? "" : options_value[OptionKeyword::EnableSymmetry];
+        return options_value[OptionKeyword::EnableSymmetry] == "" ? "1" : options_value[OptionKeyword::EnableSymmetry];
     }
         std::string getStoreFile()
     {
-        return options_key[OptionKeyword::outputF] == "" ? "ExperimentResults" : options_value[OptionKeyword::outputF];
+        return options_value[OptionKeyword::outputF] == "" ? "ExperimentResults" : options_value[OptionKeyword::outputF];
     }
         std::string getDatasetName()
     {
@@ -131,11 +131,11 @@ public:
     }
             std::string getTime()
     {
-        return options_key[OptionKeyword::timeLimit] == "" ? "100" : options_value[OptionKeyword::timeLimit];
+        return options_value[OptionKeyword::timeLimit] == "" ? "100" : options_value[OptionKeyword::timeLimit];
     }
             std::string getFairT()
     {
-        return options_key[OptionKeyword::FairT] == "" ? "0" : options_value[OptionKeyword::FairT];
+        return options_value[OptionKeyword::FairT] == "" ? "2" : options_value[OptionKeyword::FairT];
     }
             std::string getQueryNumberL()
     {
