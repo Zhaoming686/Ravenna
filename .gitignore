@@ -15,7 +15,6 @@ datasets/original/query_graph/*
 datasets/original/query_graph/dblp/*
 !datasets/original/query_graph/dblp/query_G_24_*.graph
 
-case_study/*
 outputs*/
 datasets.zip
 deposition.json
