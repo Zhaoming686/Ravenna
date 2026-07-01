@@ -17,3 +17,6 @@ datasets/original/query_graph/dblp/*
 outputs*/
 datasets.zip
 deposition.json
+
+# runscripts
+runscripts/*
