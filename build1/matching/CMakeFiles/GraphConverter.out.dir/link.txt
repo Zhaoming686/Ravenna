@@ -1,1 +1,0 @@
-/opt/software/gcc/13.2.0/bin/g++  -std=c++14 -O3 -g -Wall -march=native -pthread -O3 -DNDEBUG CMakeFiles/GraphConverter.out.dir/GraphConverter.cpp.o -o GraphConverter.out  -Wl,-rpath,/home/cbr406/Projects/Ravenna/build1/graph:/home/cbr406/Projects/Ravenna/build1/utility ../graph/libgraph.so ../utility/libutility.so 

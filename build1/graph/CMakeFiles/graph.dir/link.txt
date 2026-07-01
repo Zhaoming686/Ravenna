@@ -1,1 +1,0 @@
-/opt/software/gcc/13.2.0/bin/g++ -fPIC  -std=c++14 -O3 -g -Wall -march=native -pthread -O3 -DNDEBUG -shared -Wl,-soname,libgraph.so -o libgraph.so CMakeFiles/graph.dir/graph.cpp.o 
