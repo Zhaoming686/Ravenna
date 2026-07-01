@@ -1,0 +1,1 @@
+/opt/software/gcc/13.2.0/bin/g++  -std=c++14 -O3 -g -Wall -march=native -pthread -O3 -DNDEBUG CMakeFiles/QueryGen.out.dir/QueryGenMain.cpp.o CMakeFiles/QueryGen.out.dir/GenerateQuery.cpp.o -o QueryGen.out  -Wl,-rpath,/home/cbr406/Projects/Ravenna/build1/graph:/home/cbr406/Projects/Ravenna/build1/utility ../graph/libgraph.so ../utility/libutility.so 
