@@ -8,7 +8,7 @@
       "args": [
         "--build",
         "--preset",
-        "run-test-release"
+        "${input:buildPreset}"
       ],
       "group": "build",
       "problemMatcher": []
@@ -16,7 +16,7 @@
     {
       "label": "run SubgraphMatching",
       "type": "process",
-      "command": "${workspaceFolder}/build1/matching/SubgraphMatching.out",
+      "command": "${workspaceFolder}/build-${input:buildPreset}/matching/SubgraphMatching.out",
       "args": [
         "-d",
         "${workspaceFolder}/case_study/data_graph/expanded_100k.graph",
@@ -31,7 +31,7 @@
         "-time",
         "1",
         "-tau",
-        "0.1,0.2,0.3,0.4,0.5"
+        "0.3"
       ],
       "options": {
         "cwd": "${workspaceFolder}",
@@ -41,6 +41,18 @@
       },
       "dependsOn": "build with cmake",
       "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "buildPreset",
+      "type": "pickString",
+      "description": "Choose build preset",
+      "options": [
+        "local-test",
+        "sbatch-release"
+      ],
+      "default": "local-test"
     }
   ]
 }

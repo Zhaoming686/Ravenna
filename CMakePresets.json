@@ -1,23 +1,47 @@
 {
   "version": 6,
+
   "configurePresets": [
     {
-      "name": "run-test-release",
-      "displayName": "run Release",
+      "name": "base",
+      "hidden": true,
       "generator": "Unix Makefiles",
-      "binaryDir": "${sourceDir}/build1",
+      "binaryDir": "${sourceDir}/build-${presetName}",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_C_COMPILER": "/opt/software/gcc/13.2.0/bin/gcc",
         "CMAKE_CXX_COMPILER": "/opt/software/gcc/13.2.0/bin/g++",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
+    },
+
+    {
+      "name": "local-test",
+      "displayName": "Local Test",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+
+    {
+      "name": "sbatch-release",
+      "displayName": "SBATCH Release",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ],
+
   "buildPresets": [
     {
-      "name": "run-test-release",
-      "configurePreset": "run-test-release",
+      "name": "local-test",
+      "configurePreset": "local-test",
+      "jobs": 4
+    },
+    {
+      "name": "sbatch-release",
+      "configurePreset": "sbatch-release",
       "jobs": 4
     }
   ]
