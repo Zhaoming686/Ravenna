@@ -8,6 +8,8 @@
 #include "utility/primitive/projection.h"
 #include "utility/relation/catalog.h"
 #include <vector>
+#include <utility>
+#include <limits>
 #include <queue>
 #include <unordered_set>
 #include <bitset>
@@ -218,8 +220,9 @@ public:
     };
     static size_t outputEmbeddings(const std::vector<EmbeddingRecord> &embedding_records, ui qsiz, size_t output_limit_num = std::numeric_limits<size_t>::max(), bool print_embedding = true);
     static void GreedyConstructEmbedding(const Graph *data_graph, const Graph *query_graph, ui **candidates, ui *order, std::vector<ui> *VN, ui *embedding, ui *nodeId, uint8_t *label_flag, int *label_val, ui *label_cover_cnt, size_t &embedding_cnt, int cur_depth, bool has_equiv = false, VertexID conflict_v = 0, const std::vector<ui> *VNTempPtr = nullptr, bool print_embedding = true);
-    static size_t buildBucketsAndMarksub(const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix, ui **candidates, ui *order, int *RQ, ui *base_embedding, ui *base_idx_embedding, std::vector<ui> *VN, ui **valid_candidate_idx, ui *idx_count, ui *idx, ui *nodeId, uint8_t *label_flag, int *label_val, ui *label_cover_cnt, int max_dep, std::vector<EmbeddingRecord> &embedding_records, std::vector<ui> *VSub = nullptr);
-
+    // static size_t buildBucketsAndMarksub(const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix, ui **candidates, ui *order, int *RQ, ui *base_embedding, ui *base_idx_embedding, std::vector<ui> *VN, ui **valid_candidate_idx, ui *idx_count, ui *idx, ui *nodeId, uint8_t *label_flag, int *label_val, ui *label_cover_cnt, int max_dep, std::vector<EmbeddingRecord> &embedding_records, std::vector<ui> *VSub = nullptr);
+    static size_t buildBucketsAndMarksub(const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix, ui **candidates, ui *order, int *RQ, ui *base_embedding, ui *base_idx_embedding, std::vector<ui> *VN, ui **valid_candidate_idx, ui *idx_count, ui *idx, ui *nodeId, uint8_t *label_flag, int *label_val, ui *label_cover_cnt, int max_dep, std::vector<ui>& current, std::vector<ui>& active, std::vector<std::pair<ui, ui>>& replacements, bool print_embedding, std::vector<ui> *VSub = nullptr, size_t remaining_output_limit = std::numeric_limits<size_t>::max());
+ 
     // tau values
     static void SetTauValues(const std::vector<double> &tau_values, const Graph *data_graph);
 

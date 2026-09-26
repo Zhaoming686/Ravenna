@@ -27,7 +27,7 @@
         "-order",
         "CFL",
         "-engine",
-        "DSQLDIV",
+        "MATCODIV",
         "-time",
         "1",
         "-tau",

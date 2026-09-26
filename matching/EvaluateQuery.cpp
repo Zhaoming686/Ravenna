@@ -14,6 +14,48 @@
 namespace
 {
     std::vector<double> g_tau_values;
+
+    static inline void printCurrentEmbedding(const std::vector<ui>& current, bool print_embedding){
+        if (!print_embedding) return;
+        std::cout << "EMB";
+        for (ui v : current) std::cout << '\t' << v;
+        std::cout << '\n';
+    }
+
+    static size_t emitVNEmbeddings(ui** candidates, const ui* base_idx, const ui* base,const std::vector<std::vector<ui>>& buckets,std::vector<ui>& current, std::vector<ui>& active,size_t limit, bool print_embedding){
+        active.clear();
+        if (limit == 0) return 0;
+
+        for (ui u = 0; u < current.size(); ++u) {
+            const size_t skip = (base_idx[u] != 10000000); // if base_idx[u] is not 10000000, we skip the first candidate in the bucket
+            if (buckets[u].size() > skip) active.push_back(u); // if there are candidates to consider, add u to active
+        }
+
+        size_t count = 0;
+        for (size_t column = 0; !active.empty() && count < limit; ++column) {
+            size_t n = 0;
+            for (ui u : active) {
+                // Calculate the position in the bucket, skipping the first candidate if base_idx[u] is not 10000000
+                const size_t pos = column + (base_idx[u] != 10000000); 
+                if (pos < buckets[u].size()) {
+                    current[u] = candidates[u][buckets[u][pos]];
+                    active[n++] = u; // keep u in active if there are still candidates to consider
+                } else {
+                    current[u] = base[u];
+                }
+            }
+            active.resize(n); // resize active to only include vertices that still have candidates to consider
+            if (active.empty()) break;
+
+            printCurrentEmbedding(current, print_embedding);
+            ++count;
+        }
+
+        // Also restore unfinished buckets when the output limit is reached.
+        for (ui u : active) current[u] = base[u];
+        active.clear();
+        return count;
+    }
 }
 
 void EvaluateQuery::SetTauValues(const std::vector<double> &tau_values, const Graph *data_graph)
@@ -11969,10 +12011,10 @@ void EvaluateQuery::calculateCellFNAndSubset(const Graph *query_graph, Edges ***
     }
 }
 
-size_t embedding_count0 = 0; // total embedding
-size_t embedding_count1 = 0; // total embedding
-size_t embedding_count2 = 0; // pi_f_embedding
-size_t embedding_count3 = 0; // pi_d_embedding
+size_t embedding_count0 = 0; // visited base batches
+size_t embedding_count1 = 0; // emitted base embeddings
+size_t embedding_count2 = 0; // emitted VN embeddings
+size_t embedding_count3 = 0; // emitted VNsub embeddings
 
 enumResult
 EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&nodeId, Edges ***edge_matrix, ui **candidates,
@@ -11986,6 +12028,12 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
     bool print_embedding = false; // false: do not print; true: print
                                   // assumming that creating matrix can be done before we do not count the time.
     int qsiz = query_graph->getVerticesCount();
+
+    std::vector<ui> current_embedding(qsiz), active_vn; // current_embedding is the base embedding, active_vn is the current VN candidates
+    std::vector<std::pair<ui, ui>> replacements; // replacements is the list of (query vertex, data vertex) pairs that are replaced in the current embedding
+    active_vn.reserve(qsiz); // reserve space for active_vn to avoid reallocations
+    replacements.reserve(qsiz); // reserve space for replacements to avoid reallocations
+
     int ksize = 1000;
     int SolPos[ksize + 1][qsiz];
     std::priority_queue<std::pair<int, int>, std::vector<std::pair<int, int>>, std::greater<>> pq;
@@ -12176,8 +12224,8 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
     g_op_count2 = 0;
 
     // Enumeration
-    std::vector<EmbeddingRecord> embedding_records;
-    embedding_records.reserve(1024);
+    // std::vector<EmbeddingRecord> embedding_records;
+    // embedding_records.reserve(1024);
 
     std::vector<ui> base_embedding(qsiz, 10000000);
     std::vector<ui> base_idx_embedding(qsiz, 10000000);
@@ -12482,8 +12530,9 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
 
                 // The current full embedding has already been constructed in embedding[]
                 // and idx_embedding[].
-                embedding_cnt += buildBucketsAndMarksub(data_graph, query_graph, edge_matrix, candidates, order, RQ, embedding, idx_embedding, VN, valid_candidate_idx, idx_count, idx, nodeId, label_flag, label_val, label_cover_cnt, cur_depth, embedding_records, VSub);
-
+                // embedding_cnt += buildBucketsAndMarksub(data_graph, query_graph, edge_matrix, candidates, order, RQ, embedding, idx_embedding, VN, valid_candidate_idx, idx_count, idx, nodeId, label_flag, label_val, label_cover_cnt, cur_depth, embedding_records, VSub);
+                embedding_cnt += buildBucketsAndMarksub(data_graph, query_graph, edge_matrix, candidates, order, RQ, embedding, idx_embedding, VN, valid_candidate_idx, idx_count, idx, nodeId, label_flag, label_val, label_cover_cnt, cur_depth, current_embedding, active_vn, replacements, print_embedding, VSub, output_limit_num - embedding_cnt);
+ 
                 reverse_embedding.erase(embedding[u]);
 
                 assigned[u] = false;
@@ -12630,8 +12679,8 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
 
 EXIT:
 
-    size_t printed_embedding_cnt = outputEmbeddings(embedding_records, qsiz, output_limit_num, print_embedding);
-    embedding_cnt = printed_embedding_cnt;
+    // size_t printed_embedding_cnt = outputEmbeddings(embedding_records, qsiz, output_limit_num, print_embedding);
+    // embedding_cnt = printed_embedding_cnt;
 
     // final checkpointing at TimeL
     ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
@@ -12714,9 +12763,17 @@ enumResult
 EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph, ui *&nodeId, Edges ***edge_matrix, ui **candidates,
                               ui *candidates_count, ui *order, size_t output_limit_num, size_t &call_count, int TimeL, int FairT, const std::unordered_map<VertexID, std::pair<std::set<VertexID>, std::set<VertexID>>> &ordered_constraints)
 {
+    embedding_count0 = embedding_count1 = embedding_count2 = embedding_count3 = 0;
+
     bool print_embedding = false; // false: do not print; true: print
     // assumming that creating matrix can be done before we do not count the time.
     int qsiz = query_graph->getVerticesCount();
+
+    std::vector<ui> current_embedding(qsiz), active_vn;
+    std::vector<std::pair<ui, ui>> replacements;
+    active_vn.reserve(qsiz);
+    replacements.reserve(qsiz);
+
     int ksize = 1000;
     int SolPos[ksize + 1][qsiz];
     std::priority_queue<std::pair<int, int>, std::vector<std::pair<int, int>>, std::greater<>> pq;
@@ -12860,8 +12917,8 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
     std::vector<uint32_t> ranked_epoch(max_depth, 0);
 
     // For enumeration
-    std::vector<EmbeddingRecord> embedding_records;
-    embedding_records.reserve(1024);
+    // std::vector<EmbeddingRecord> embedding_records;
+    // embedding_records.reserve(1024);
 
     size_t raw_embedding_cnt = 0;
 
@@ -13134,8 +13191,9 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
 
                 // The current full embedding has already been constructed in embedding[]
                 // and idx_embedding[]. Build original/VN/local buckets and mark useful vertices.
-                embedding_cnt += buildBucketsAndMarksub(data_graph, query_graph, edge_matrix, candidates, order, RQ, embedding, idx_embedding, VN, valid_candidate_idx, idx_count, idx, nodeId, label_flag, label_val, label_cover_cnt, cur_depth, embedding_records);
-
+                // embedding_cnt += buildBucketsAndMarksub(data_graph, query_graph, edge_matrix, candidates, order, RQ, embedding, idx_embedding, VN, valid_candidate_idx, idx_count, idx, nodeId, label_flag, label_val, label_cover_cnt, cur_depth, embedding_records);
+                embedding_cnt += buildBucketsAndMarksub(data_graph, query_graph, edge_matrix, candidates, order, RQ, embedding, idx_embedding, VN, valid_candidate_idx, idx_count, idx, nodeId, label_flag, label_val, label_cover_cnt, cur_depth, current_embedding, active_vn, replacements, print_embedding, nullptr, output_limit_num - embedding_cnt);
+ 
                 reverse_embedding.erase(embedding[u]);
 
                 // Undo assignment for leaf.
@@ -13249,8 +13307,8 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
 
 EXIT:
 
-    size_t printed_embedding_cnt = outputEmbeddings(embedding_records, qsiz, output_limit_num, print_embedding);
-    embedding_cnt = printed_embedding_cnt;
+    // size_t printed_embedding_cnt = outputEmbeddings(embedding_records, qsiz, output_limit_num, print_embedding);
+    // embedding_cnt = printed_embedding_cnt;
 
     // final checkpointing at TimeL
     ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
@@ -13325,9 +13383,17 @@ enumResult
 EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, ui *&nodeId, Edges ***edge_matrix, ui **candidates,
                             ui *candidates_count, ui *order, size_t output_limit_num, size_t &call_count, int TimeL, int FairT, const std::unordered_map<VertexID, std::pair<std::set<VertexID>, std::set<VertexID>>> &ordered_constraints)
 {
+    embedding_count0 = embedding_count1 = embedding_count2 = embedding_count3 = 0;
+    
     bool print_embedding = false; // false: do not print; true: print
                                   // assumming that creating matrix can be done before we do not count the time.
     int qsiz = query_graph->getVerticesCount();
+
+    std::vector<ui> current_embedding(qsiz), active_vn;
+    std::vector<std::pair<ui, ui>> replacements;
+    active_vn.reserve(qsiz);
+    replacements.reserve(qsiz);
+   
     int ksize = 1000;
     int SolPos[ksize + 1][qsiz];
     std::priority_queue<std::pair<int, int>, std::vector<std::pair<int, int>>, std::greater<>> pq;
@@ -13518,8 +13584,8 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
     g_op_count2 = 0;
 
     // Enumeration
-    std::vector<EmbeddingRecord> embedding_records;
-    embedding_records.reserve(1024);
+    // std::vector<EmbeddingRecord> embedding_records;
+    // embedding_records.reserve(1024);
 
     std::vector<ui> base_embedding(qsiz, 10000000);
     std::vector<ui> base_idx_embedding(qsiz, 10000000);
@@ -13824,8 +13890,9 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
 
                 // The current full embedding has already been constructed in embedding[]
                 // and idx_embedding[].
-                embedding_cnt += buildBucketsAndMarksub(data_graph, query_graph, edge_matrix, candidates, order, RQ, embedding, idx_embedding, VN, valid_candidate_idx, idx_count, idx, nodeId, label_flag, label_val, label_cover_cnt, cur_depth, embedding_records, VSub);
-
+                // embedding_cnt += buildBucketsAndMarksub(data_graph, query_graph, edge_matrix, candidates, order, RQ, embedding, idx_embedding, VN, valid_candidate_idx, idx_count, idx, nodeId, label_flag, label_val, label_cover_cnt, cur_depth, embedding_records, VSub);
+                embedding_cnt += buildBucketsAndMarksub(data_graph, query_graph, edge_matrix, candidates, order, RQ, embedding, idx_embedding, VN, valid_candidate_idx, idx_count, idx, nodeId, label_flag, label_val, label_cover_cnt, cur_depth, current_embedding, active_vn, replacements, print_embedding, VSub, output_limit_num - embedding_cnt);
+ 
                 reverse_embedding.erase(embedding[u]);
 
                 assigned[u] = false;
@@ -13951,8 +14018,8 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
 
 EXIT:
 
-    size_t printed_embedding_cnt = outputEmbeddings(embedding_records, qsiz, output_limit_num, print_embedding);
-    embedding_cnt = printed_embedding_cnt;
+    // size_t printed_embedding_cnt = outputEmbeddings(embedding_records, qsiz, output_limit_num, print_embedding);
+    // embedding_cnt = printed_embedding_cnt;
 
     // final checkpointing at TimeL
     ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
@@ -14218,8 +14285,9 @@ EXIT:
 // }
 
 // Enumerate embeddings
-size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix, ui **candidates, ui *order, int *RQ, ui *base_embedding, ui *base_idx_embedding, std::vector<ui> *VN, ui **valid_candidate_idx, ui *idx_count, ui *idx, ui *nodeId, uint8_t *label_flag, int *label_val, ui *label_cover_cnt, int max_dep, std::vector<EmbeddingRecord> &embedding_records, std::vector<ui> *VSub)
-{
+// size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix, ui **candidates, ui *order, int *RQ, ui *base_embedding, ui *base_idx_embedding, std::vector<ui> *VN, ui **valid_candidate_idx, ui *idx_count, ui *idx, ui *nodeId, uint8_t *label_flag, int *label_val, ui *label_cover_cnt, int max_dep, std::vector<EmbeddingRecord> &embedding_records, std::vector<ui> *VSub)
+// {
+size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix, ui **candidates, ui *order, int *RQ, ui *base_embedding, ui *base_idx_embedding, std::vector<ui> *VN, ui **valid_candidate_idx, ui *idx_count, ui *idx, ui *nodeId, uint8_t *label_flag, int *label_val, ui *label_cover_cnt, int max_dep, std::vector<ui>& current, std::vector<ui>& active, std::vector<std::pair<ui, ui>>& replacements, bool print_embedding, std::vector<ui> *VSub, size_t remaining_output_limit){
     size_t repair_probe_cnt = 0;
     size_t repair_success_cnt = 0;
 
@@ -14249,20 +14317,6 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
         return true;
     };
 
-    auto getBucket = [](std::vector<Bucket> &buckets, VertexID u) -> std::vector<ui> &
-    {
-        for (auto &bucket : buckets)
-        {
-            if (bucket.u == u)
-            {
-                return bucket.vertices;
-            }
-        }
-
-        buckets.push_back(Bucket{u, std::vector<ui>()});
-        return buckets.back().vertices;
-    };
-
     auto hasEdgeToForwardNeighbor = [&](VertexID u, VertexID w, ui cand_idx_u, ui cand_idx_w) -> bool
     {
         Edges *E = edge_matrix[u][w];
@@ -14281,17 +14335,17 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
         return std::binary_search(row_begin, row_end, cand_idx_w);
     };
 
-    EmbeddingRecord rec;
-    rec.embedding_by_q.resize(qsiz);
+    std::copy_n(base_embedding, qsiz, current.begin());
+    size_t emitted = 0;
+    bool output_original = false;
 
     // Internal bucket for fast forward repair.
-    // repair_idx_buckets[u] stores candidate indices corresponding to rec.vn_buckets[u].
+    // The base index, when present, precedes the useful VN candidate indices.
     std::vector<std::vector<ui>> repair_idx_buckets(qsiz);
 
     for (ui q = 0; q < qsiz; ++q)
     {
-        rec.embedding_by_q[q] = base_embedding[q];
-
+        
         if (base_idx_embedding[q] != INVALID_IDX)
         {
             repair_idx_buckets[q].push_back(base_idx_embedding[q]);
@@ -14308,7 +14362,7 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
 
         if (markIfUseful(v))
         {
-            rec.output_original = true;
+            output_original = true;
         }
     }
 
@@ -14336,8 +14390,6 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
                 continue;
             }
 
-            getBucket(rec.vn_buckets, u).push_back(v);
-
             repair_idx_buckets[u].push_back(cand_idx);
 
             // Once discovered, immediately mark it.
@@ -14345,39 +14397,16 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
         }
     }
 
-    // ------------------------------------------------------------
-    // 3. VSub bucket
-    // ------------------------------------------------------------
-    size_t local_column_cnt = 0;
+    // Reuse the repair indices as the VN output representation. This avoids
+    // a second copy of their vertex IDs and retains the original column order.
+    if (output_original && emitted < remaining_output_limit) {
+        printCurrentEmbedding(current, print_embedding);
+        ++emitted;
+    }
+    const size_t base_count = emitted;
+    const size_t vn_count = emitVNEmbeddings(candidates, base_idx_embedding, base_embedding, repair_idx_buckets, current, active, remaining_output_limit - emitted, print_embedding);emitted += vn_count;
 
-    auto appendLocalColumn = [&](const std::vector<std::pair<VertexID, VertexID>> &replacements)
-    {
-        // Add one empty slot to every existing local bucket.
-        for (auto &bucket : rec.local_buckets)
-        {
-            bucket.vertices.push_back(INVALID_IDX);
-        }
-
-        // Fill the current column.
-        for (const auto &p : replacements)
-        {
-            VertexID q = p.first;
-            VertexID v = p.second;
-
-            std::vector<ui> &bucket = getBucket(rec.local_buckets, q);
-
-            // Newly created bucket: pad previous columns.
-            if (bucket.size() < local_column_cnt + 1)
-            {
-                bucket.resize(local_column_cnt + 1, INVALID_IDX);
-            }
-
-            bucket[local_column_cnt] = v;
-        }
-
-        ++local_column_cnt;
-    };
-
+    // Stream each successful VSub repair directly; no padded local-bucket table.
     if (VSub != nullptr)
     {
         for (int dep = max_dep; dep >= 0; --dep)
@@ -14400,7 +14429,7 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
                     continue;
                 }
 
-                std::vector<std::pair<VertexID, VertexID>> replacements;
+                replacements.clear();
                 replacements.emplace_back(u, v);
 
                 bool feasible = true;
@@ -14457,41 +14486,24 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
                     continue;
                 }
 
-                appendLocalColumn(replacements);
+                if (emitted < remaining_output_limit) {
+                    for (const auto& p : replacements) current[p.first] = p.second;
+                    printCurrentEmbedding(current, print_embedding);
+                   ++emitted;
+                    for (const auto& p : replacements) current[p.first] = base_embedding[p.first];
+                }
 
                 UpdateLabelVal(data_graph, v, nodeId, label_flag, label_val, label_cover_cnt);
             }
         }
     }
 
-    size_t output_cnt = 0;
+    // Accumulate actual delivered categories once per batch.
+    embedding_count1 += base_count;
+    embedding_count2 += vn_count;
+    embedding_count3 += emitted - base_count - vn_count;
 
-    if (rec.output_original)
-    {
-        output_cnt += 1;
-        embedding_count1++;
-    }
-
-    size_t vn_column_cnt = 0;
-
-    for (const auto &bucket : rec.vn_buckets)
-    {
-        if (bucket.vertices.size() > vn_column_cnt)
-        {
-            vn_column_cnt = bucket.vertices.size();
-        }
-    }
-
-    output_cnt += vn_column_cnt;
-    embedding_count2 += vn_column_cnt;
-
-    output_cnt += local_column_cnt;
-    embedding_count3 += local_column_cnt;
-
-    if (rec.output_original || !rec.vn_buckets.empty() || !rec.local_buckets.empty())
-    {
-        embedding_records.push_back(std::move(rec));
-    }
-
-    return output_cnt;
+    // Even after the output limit is reached, coverage updates above match the
+    // original helper. Only delivery is capped, preserving the existing behavior.
+    return emitted;
 }

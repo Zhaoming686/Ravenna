@@ -503,11 +503,15 @@ void MatCo::CountRes(std::vector<uint> m){
                 // KeyVertexSet[cand] = true;
                 EvaluateQuery::UpdateLabelVal(data_, cand, KeyVertexSet, label_flag, label_val, label_cover_cnt);
                 num_keyvertex_++;
+
+                const uint u = match_order[i];
+                m[u] = cand;
+
                 num_initial_results_++;
                 embedding_cnt_++;
                 if(print_enumeration_results_){
-                    uint u = match_order [i] ; 
-                    m[u] = cand ;
+                    // uint u = match_order [i] ; 
+                    // m[u] = cand ;
                     PrintMatch(m);
                 }
             }
