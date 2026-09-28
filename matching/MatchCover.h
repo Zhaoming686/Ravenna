@@ -47,7 +47,8 @@ private:
     ui* label_target = nullptr;
     // checkpoint for time
     // every 100ms
-    const int interval_ms = 1000;
+    // const int interval_ms = 1000;
+    const int interval_ms = 100;
 
     struct EvalState;     // forward declaration
     EvalState* eval_ = nullptr;
@@ -89,6 +90,7 @@ public:
     //brief Generate matching order ,isolate vertices and adj matrix
     void Preprocessing();
     void InitialMatching();
+    size_t GetEmbeddingCount() const { return embedding_cnt_; }
 
     // ===== Getters from the original matching code (used by main) =====
     void GetNumInitialResults(size_t &num_initial_results) { num_initial_results = num_initial_results_; }

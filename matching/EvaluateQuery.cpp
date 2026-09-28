@@ -1,6 +1,10 @@
 
 // #define ENABLE_FAILING_SET
 #include "EvaluateQuery.h"
+#include <cstdlib>
+#include <iomanip>
+#include <fcntl.h>
+#include <unistd.h>
 #include "utility/computesetintersection.h"
 #include "utility/execution_tree/execution_tree_generator.h"
 #include <vector>
@@ -15,7 +19,36 @@ namespace
 {
     std::vector<double> g_tau_values;
 
+    EvaluateQuery::EnumClock::time_point g_enum_start;
+    double g_first_ms = -1;
+    long long g_rss_before = -1;
+    bool g_peak_ok = false;
+
+    long long readStatusKiB(const char* key) {
+        int fd = ::open("/proc/self/status", O_RDONLY | O_CLOEXEC);
+        if (fd < 0) return -1;
+        char text[4096];
+        ssize_t n = ::read(fd, text, sizeof(text) - 1);
+        ::close(fd);
+        if (n <= 0) return -1;
+        text[n] = '\0';
+        const char* p = std::strstr(text, key);
+        if (!p) return -1;
+        p += std::strlen(key);
+        char* end = nullptr;
+        long long value = std::strtoll(p, &end, 10);
+        return end == p ? -1 : value;
+    }
+
+    bool resetPeakRss() {
+        int fd = ::open("/proc/self/clear_refs", O_WRONLY | O_CLOEXEC);
+        if (fd < 0) return false;
+        bool ok = (::write(fd, "5\n", 2) == 2);
+        return (::close(fd) == 0) && ok;
+    }
+
     static inline void printCurrentEmbedding(const std::vector<ui>& current, bool print_embedding){
+        if (g_first_ms < 0) EvaluateQuery::MarkFirstEmbedding();
         if (!print_embedding) return;
         std::cout << "EMB";
         for (ui v : current) std::cout << '\t' << v;
@@ -4479,7 +4512,7 @@ EvaluateQuery::LFTJDIV1(const Graph *data_graph, const Graph *query_graph, Edges
             idx_embedding[u] = valid_idx; // reverse the id of the embdeing to the position
             visited_vertices[v] = true;
             idx[cur_depth] += 1; // next element
-            while (cur_depth < idx_count[cur_depth] && valid_candidate_idx[cur_depth][idx[cur_depth]] == 10000000)
+            while (idx[cur_depth] < idx_count[cur_depth] && valid_candidate_idx[cur_depth][idx[cur_depth]] == 10000000)
             {
                 idx[cur_depth] += 1;
             }
@@ -5063,7 +5096,7 @@ EvaluateQuery::LFTJDIV(const Graph *data_graph, const Graph *query_graph, Edges 
             visited_vertices[v] = true;
             idx[cur_depth] += 1; // next element
 
-            while (cur_depth < idx_count[cur_depth] && valid_candidate_idx[cur_depth][idx[cur_depth]] == 10000000)
+            while (idx[cur_depth] < idx_count[cur_depth] && valid_candidate_idx[cur_depth][idx[cur_depth]] == 10000000)
             {
                 idx[cur_depth] += 1;
             }
@@ -5656,7 +5689,7 @@ EvaluateQuery::DIVSMNN(const Graph *data_graph, const Graph *query_graph, ui *&n
             visited_vertices[v] = true;
             idx[cur_depth] += 1; // next element
 
-            while (cur_depth < idx_count[cur_depth] && valid_candidate_idx[cur_depth][idx[cur_depth]] == 10000000)
+            while (idx[cur_depth] < idx_count[cur_depth] && valid_candidate_idx[cur_depth][idx[cur_depth]] == 10000000)
             {
                 idx[cur_depth] += 1;
             }
@@ -6211,7 +6244,7 @@ EvaluateQuery::DIVTOPK(const Graph *data_graph, const Graph *query_graph, ui *&n
             visited_vertices[v] = true;
             idx[cur_depth] += 1; // next element
 
-            while (cur_depth < idx_count[cur_depth] && valid_candidate_idx[cur_depth][idx[cur_depth]] == 10000000)
+            while (idx[cur_depth] < idx_count[cur_depth] && valid_candidate_idx[cur_depth][idx[cur_depth]] == 10000000)
             {
                 idx[cur_depth] += 1;
             }
@@ -7817,6 +7850,7 @@ EvaluateQuery::MMDIV(const Graph *data_graph, const Graph *query_graph, ui *&nod
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
+    BeginEnumeration(start);
 
     enumResult s;
     // Generate bn.
@@ -7909,8 +7943,12 @@ EvaluateQuery::MMDIV(const Graph *data_graph, const Graph *query_graph, ui *&nod
     int *label_val = nullptr;
     ui *label_target = nullptr;
     InitLabelValByCandidates(query_graph, labelToCandidates, label_val, label_target);
-    // record once every 1000 ms
-    const int interval_ms = 1000;
+    // // record once every 1000 ms
+    // const int interval_ms = 1000;
+
+    // record once every 100 ms
+    const int interval_ms = 100;
+
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL /*ms*/, interval_ms);
     int next_t = 0;                // the next timepoint to record timepoint（0,100,200,...）
@@ -7938,10 +7976,14 @@ EvaluateQuery::MMDIV(const Graph *data_graph, const Graph *query_graph, ui *&nod
             // Fill in when reaching a time point: one loop may cross multiple timepoints
             if (next_t <= TimeL && ens >= next_t)
             {
-                ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                // ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                const auto point = ReadCheckpoint(ens, embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+
                 while (next_t <= TimeL && ens >= next_t)
                 {
-                    PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    const auto kind = next_t + interval_ms <= TimeL && ens >= next_t + interval_ms ? CheckpointKind::GapFill : CheckpointKind::Sample;
+                    PushCheckpoint(ck, next_t, point, kind);
                     next_t += interval_ms;
                 }
             }
@@ -8246,10 +8288,14 @@ EvaluateQuery::MMDIV(const Graph *data_graph, const Graph *query_graph, ui *&nod
 EXIT:
 
     // final checkpoint at EXIT, make sure it's 2000ms finally
+    ck.final_point = ReadCheckpoint(EnumerationElapsedMs(), embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+
     ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
     while (next_t <= TimeL)
     {
-        PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+        // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+        const auto kind = next_t <= ck.final_point.observed_ms ? CheckpointKind::GapFill : CheckpointKind::TailFill;
+        PushCheckpoint(ck, next_t, ck.final_point, kind);
         next_t += interval_ms;
     }
 
@@ -8270,36 +8316,36 @@ EXIT:
     s.embedding_cnt = embedding_cnt;
     s.candidate_true_count_sum = true_cand_sum;
 
-    std::cout << "\n--- Checkpoints ---\n";
-    if (embedding_cnt == 0)
-    {
-        for (ui i = 0; i < ck.sz; ++i)
-        {
-            std::cout << "CHECK" << "\t"
-                      << ck.time_point[i] << "\t"
-                      << ck.sat_point[i] << "\t"
-                      << ck.cov_sat_point[i] << "\t"
-                      << ck.avg_rel_cov_point[i] << "\t"
-                      << ck.call_count_point[i] << "\t"
-                      << ck.prune_count_point[i] << "\t"
-                      << -1 << "\n";
-        }
-    }
-    else
-    {
-        for (ui i = 0; i < ck.sz; ++i)
-        {
-            std::cout << "CHECK" << "\t"
-                      << ck.time_point[i] << "\t"
-                      << ck.sat_point[i] << "\t"
-                      << ck.cov_sat_point[i] << "\t"
-                      << ck.avg_rel_cov_point[i] << "\t"
-                      << ck.call_count_point[i] << "\t"
-                      << ck.prune_count_point[i] << "\t"
-                      << ck.embedding_cnt_point[i] << "\n";
-        }
-    }
-
+    // std::cout << "\n--- Checkpoints ---\n";
+    // if (embedding_cnt == 0)
+    // {
+    //     for (ui i = 0; i < ck.sz; ++i)
+    //     {
+    //         std::cout << "CHECK" << "\t"
+    //                   << ck.time_point[i] << "\t"
+    //                   << ck.sat_point[i] << "\t"
+    //                   << ck.cov_sat_point[i] << "\t"
+    //                   << ck.avg_rel_cov_point[i] << "\t"
+    //                   << ck.call_count_point[i] << "\t"
+    //                   << ck.prune_count_point[i] << "\t"
+    //                   << -1 << "\n";
+    //     }
+    // }
+    // else
+    // {
+    //     for (ui i = 0; i < ck.sz; ++i)
+    //     {
+    //         std::cout << "CHECK" << "\t"
+    //                   << ck.time_point[i] << "\t"
+    //                   << ck.sat_point[i] << "\t"
+    //                   << ck.cov_sat_point[i] << "\t"
+    //                   << ck.avg_rel_cov_point[i] << "\t"
+    //                   << ck.call_count_point[i] << "\t"
+    //                   << ck.prune_count_point[i] << "\t"
+    //                   << ck.embedding_cnt_point[i] << "\n";
+    //     }
+    // }
+    PrintCheckpoints(ck, false);
     DestroyCheckpointRecorder(ck);
     DestroyLabelsQuery(labelsQuery);
 
@@ -8425,6 +8471,7 @@ void EvaluateQuery::GreedyConstructEmbedding(const Graph *data_graph, const Grap
         if (UNPM > 0)
         {
             embedding_cnt++;
+            if (embedding_cnt == 1) MarkFirstEmbedding();
             OG = true;
 
             if (print_embedding)
@@ -9028,69 +9075,156 @@ void EvaluateQuery::UpdateContinueFlags(const Graph *query_graph, bool &continue
     }
 }
 
-void EvaluateQuery::InitCheckpointRecorder(CheckpointRecorder &rec, int time_limit_ms, int interval_ms)
-{
-    // clear the old data
-    rec.cap = 0;
-    rec.sz = 0;
+// void EvaluateQuery::InitCheckpointRecorder(CheckpointRecorder &rec, int time_limit_ms, int interval_ms)
+// {
+//     // clear the old data
+//     rec.cap = 0;
+//     rec.sz = 0;
 
-    rec.time_point = nullptr;
-    rec.sat_point = nullptr;
-    rec.cov_sat_point = nullptr;
-    rec.avg_rel_cov_point = nullptr;
-    rec.call_count_point = nullptr;
-    rec.prune_count_point = nullptr;
-    rec.embedding_cnt_point = nullptr;
+//     rec.time_point = nullptr;
+//     rec.sat_point = nullptr;
+//     rec.cov_sat_point = nullptr;
+//     rec.avg_rel_cov_point = nullptr;
+//     rec.call_count_point = nullptr;
+//     rec.prune_count_point = nullptr;
+//     rec.embedding_cnt_point = nullptr;
 
-    if (time_limit_ms <= 0 || interval_ms <= 0)
-        return;
+//     if (time_limit_ms <= 0 || interval_ms <= 0)
+//         return;
 
-    // fixed points: 0, interval, ..., <= TimeL
-    ui cap = (ui)(time_limit_ms / interval_ms) + 1;
-    rec.cap = cap;
-
-    rec.time_point = new int[rec.cap];
-    rec.sat_point = new double[rec.cap];
-    rec.cov_sat_point = new double[rec.cap];
-    rec.avg_rel_cov_point = new double[rec.cap];
-    rec.call_count_point = new size_t[rec.cap];
-    rec.prune_count_point = new ui[rec.cap];
-    rec.embedding_cnt_point = new size_t[rec.cap];
-}
-void EvaluateQuery::PushCheckpoint(CheckpointRecorder &rec, int t_ms, double sat, double cov_sat, double avg_rel_cov, size_t call_count, ui prune_count, size_t embedding_cnt)
-{
-    if (rec.sz >= rec.cap)
-        return; // avoid realloc
-
-    ui i = rec.sz++;
-    rec.time_point[i] = t_ms;
-    rec.sat_point[i] = sat;
-    rec.cov_sat_point[i] = cov_sat;
-    rec.avg_rel_cov_point[i] = avg_rel_cov;
-    rec.call_count_point[i] = call_count;
-    rec.prune_count_point[i] = prune_count;
-    rec.embedding_cnt_point[i] = embedding_cnt;
+// Reuse each algorithm's ORIGINAL start value; never restart or relocate its timer.
+void EvaluateQuery::BeginEnumeration(EnumClock::time_point start) {
+    g_enum_start = start;
+    g_first_ms = -1;
+    g_rss_before = readStatusKiB("\nVmRSS:");
+    g_peak_ok = resetPeakRss();
 }
 
-void EvaluateQuery::DestroyCheckpointRecorder(CheckpointRecorder &rec)
-{
-    delete[] rec.time_point;
-    delete[] rec.sat_point;
-    delete[] rec.cov_sat_point;
-    delete[] rec.avg_rel_cov_point;
-    delete[] rec.call_count_point;
-    delete[] rec.prune_count_point;
-    delete[] rec.embedding_cnt_point;
+    // // fixed points: 0, interval, ..., <= TimeL
+    // ui cap = (ui)(time_limit_ms / interval_ms) + 1;
+    // rec.cap = cap;
 
-    rec.cap = 0;
-    rec.sz = 0;
-    rec.time_point = nullptr;
-    rec.sat_point = nullptr;
-    rec.cov_sat_point = nullptr;
-    rec.avg_rel_cov_point = nullptr;
-    rec.call_count_point = nullptr;
-    rec.prune_count_point = nullptr;
-    rec.embedding_cnt_point = nullptr;
+    // rec.time_point = new int[rec.cap];
+    // rec.sat_point = new double[rec.cap];
+    // rec.cov_sat_point = new double[rec.cap];
+    // rec.avg_rel_cov_point = new double[rec.cap];
+    // rec.call_count_point = new size_t[rec.cap];
+    // rec.prune_count_point = new ui[rec.cap];
+    // rec.embedding_cnt_point = new size_t[rec.cap];
+double EvaluateQuery::EnumerationElapsedMs() {
+    return std::chrono::duration<double, std::milli>(EnumClock::now() - g_enum_start).count();
+}
+// void EvaluateQuery::PushCheckpoint(CheckpointRecorder &rec, int t_ms, double sat, double cov_sat, double avg_rel_cov, size_t call_count, ui prune_count, size_t embedding_cnt)
+// {
+//     if (rec.sz >= rec.cap)
+//         return; // avoid realloc
+
+//     ui i = rec.sz++;
+//     rec.time_point[i] = t_ms;
+//     rec.sat_point[i] = sat;
+//     rec.cov_sat_point[i] = cov_sat;
+//     rec.avg_rel_cov_point[i] = avg_rel_cov;
+//     rec.call_count_point[i] = call_count;
+//     rec.prune_count_point[i] = prune_count;
+//     rec.embedding_cnt_point[i] = embedding_cnt;
+// }
+void EvaluateQuery::MarkFirstEmbedding() {
+    if (g_first_ms < 0) g_first_ms = EnumerationElapsedMs();
+}
+
+// void EvaluateQuery::DestroyCheckpointRecorder(CheckpointRecorder &rec)
+// {
+//     delete[] rec.time_point;
+//     delete[] rec.sat_point;
+//     delete[] rec.cov_sat_point;
+//     delete[] rec.avg_rel_cov_point;
+//     delete[] rec.call_count_point;
+//     delete[] rec.prune_count_point;
+//     delete[] rec.embedding_cnt_point;
+
+//     rec.cap = 0;
+//     rec.sz = 0;
+//     rec.time_point = nullptr;
+//     rec.sat_point = nullptr;
+//     rec.cov_sat_point = nullptr;
+//     rec.avg_rel_cov_point = nullptr;
+//     rec.call_count_point = nullptr;
+//     rec.prune_count_point = nullptr;
+//     rec.embedding_cnt_point = nullptr;
+// }
+void EvaluateQuery::InitCheckpointRecorder(CheckpointRecorder& rec, int limit_ms, int interval_ms) {
+    rec.points.clear();
+    rec.final_point = {};
+    rec.points.reserve(static_cast<size_t>(std::max(0, limit_ms) / interval_ms) + 1);
+}
+
+EvaluateQuery::Checkpoint EvaluateQuery::ReadCheckpoint(double observed_ms, size_t total, const LabelID* labelsQuery, ui labelsQuerySize, const uint8_t* label_flag, const ui* label_cover_cnt, const ui* label_target, size_t base, size_t vn, size_t vnsub) {
+    const long long peak = g_peak_ok ? readStatusKiB("\nVmHWM:") : -1;
+    double sat, cov_sat, avg_rel_cov;
+    size_t absolute_coverage = 0;
+    // Reuse the label scan for sat; do not scan all data vertices or re-count embeddings.
+    ComputeSatCovAndRelCov(sat, cov_sat, avg_rel_cov, labelsQuery, labelsQuerySize,
+                          label_flag, label_cover_cnt, label_target, &absolute_coverage);
+    return {observed_ms, observed_ms, peak, total, base, vn, vnsub,
+            absolute_coverage, sat, cov_sat, CheckpointKind::Sample};
+}
+
+void EvaluateQuery::PushCheckpoint(CheckpointRecorder& rec, int t_ms, const Checkpoint& point, CheckpointKind kind) {
+    rec.points.push_back(point);
+    rec.points.back().t_ms = t_ms;
+    rec.points.back().kind = kind;
+}
+
+void EvaluateQuery::PrintCheckpoints(const CheckpointRecorder& rec, bool split) {
+    const auto flags = std::cout.flags();
+    const auto precision = std::cout.precision();
+    std::cout << std::fixed << std::setprecision(6);
+    const char* names[] = {"SAMPLE", "GAP_FILL", "TAIL_FILL", "FINAL"};
+    double previous_ms = 0;
+    size_t previous_total = 0;
+    auto print = [&](const Checkpoint& p) {
+        const bool filled = p.kind == CheckpointKind::GapFill || p.kind == CheckpointKind::TailFill;
+        const double dt = p.observed_ms - previous_ms;
+        std::cout << "PROGRESS\t" << names[static_cast<int>(p.kind)]
+                  << '\t' << p.t_ms << '\t' << p.observed_ms << '\t';
+        // Copied rows are not independent observations; do not invent their rates.
+        if (filled) std::cout << "NA\tNA\tNA";
+        else {
+            std::cout << dt << '\t';
+            if (dt > 0 && p.total >= previous_total)
+                std::cout << (p.total - previous_total) * 1000.0 / dt;
+            else std::cout << "NA";
+            std::cout << '\t';
+            if (p.observed_ms > 0) std::cout << p.total * 1000.0 / p.observed_ms;
+            else std::cout << "NA";
+            previous_ms = p.observed_ms;
+            previous_total = p.total;
+        }
+        std::cout << '\t';
+        if (p.peak_kib < 0) std::cout << "NA";
+        else std::cout << p.peak_kib / 1024.0;
+        std::cout << '\t';
+        if (split) std::cout << p.base << '\t' << p.vn << '\t' << p.vnsub;
+        else std::cout << "NA\tNA\tNA";
+        std::cout << '\t' << p.total << '\t' << p.hard_sat << '\t' << p.cov_sat
+                  << '\t' << p.absolute_coverage << '\n';
+    };
+    for (const auto& p : rec.points) print(p);
+    Checkpoint final = rec.final_point;
+    final.kind = CheckpointKind::Final;
+    print(final); // actual finish; its t_ms need not follow the padded grid times
+    std::cout << "ENUM_SUMMARY\tttfe_ms=";
+    if (g_first_ms < 0) std::cout << "NA"; else std::cout << g_first_ms;
+    std::cout << "\trss_before_mib=";
+    if (g_rss_before < 0) std::cout << "NA"; else std::cout << g_rss_before / 1024.0;
+    std::cout << "\telapsed_s=" << final.observed_ms / 1000.0
+              << "\tpeak_reset=" << (g_peak_ok ? "ok" : "unavailable") << '\n';
+    std::cout.flags(flags);
+    std::cout.precision(precision);
+}
+
+void EvaluateQuery::DestroyCheckpointRecorder(CheckpointRecorder& rec) {
+    std::vector<Checkpoint>().swap(rec.points);
 }
 
 // labelsQuery[0..labelsQuerySize)
@@ -9128,8 +9262,10 @@ void EvaluateQuery::DestroyLabelsQuery(LabelID *&labelsQuery)
     labelsQuery = nullptr;
 }
 
-void EvaluateQuery::ComputeSatCovAndRelCov(double &last_sat, double &last_cov_sat, double &last_avg_rel_cov, const LabelID *labelsQuery, ui labelsQuerySize, const uint8_t *label_flag, const ui *label_cover_cnt, const ui *label_target)
+// void EvaluateQuery::ComputeSatCovAndRelCov(double &last_sat, double &last_cov_sat, double &last_avg_rel_cov, const LabelID *labelsQuery, ui labelsQuerySize, const uint8_t *label_flag, const ui *label_cover_cnt, const ui *label_target)
+void EvaluateQuery::ComputeSatCovAndRelCov(double &last_sat, double &last_cov_sat, double &last_avg_rel_cov, const LabelID *labelsQuery, ui labelsQuerySize, const uint8_t *label_flag, const ui *label_cover_cnt, const ui *label_target, size_t *absolute_coverage)
 {
+    if (absolute_coverage) *absolute_coverage = 0;
     if (labelsQuerySize == 0)
     {
         last_sat = 0.0;
@@ -9138,6 +9274,7 @@ void EvaluateQuery::ComputeSatCovAndRelCov(double &last_sat, double &last_cov_sa
         return;
     }
 
+    size_t covered = 0;
     ui hard_ok = 0;
     double cov_sat_sum = 0.0;
     double rel_cov_sum = 0.0;
@@ -9145,6 +9282,7 @@ void EvaluateQuery::ComputeSatCovAndRelCov(double &last_sat, double &last_cov_sa
     for (ui i = 0; i < labelsQuerySize; ++i)
     {
         LabelID l = labelsQuery[i];
+        covered += label_cover_cnt[l]; // disjoint labels; raw distinct-vertex counts
         ui target = label_target[l];
 
         double rho = 0.0;
@@ -9169,6 +9307,7 @@ void EvaluateQuery::ComputeSatCovAndRelCov(double &last_sat, double &last_cov_sa
     last_sat = static_cast<double>(hard_ok) / static_cast<double>(labelsQuerySize);
     last_cov_sat = cov_sat_sum / static_cast<double>(labelsQuerySize);
     last_avg_rel_cov = rel_cov_sum / static_cast<double>(labelsQuerySize);
+    if (absolute_coverage) *absolute_coverage = covered;
 }
 
 enumResult
@@ -9178,6 +9317,9 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
 {
 
     auto start = std::chrono::high_resolution_clock::now();
+
+    BeginEnumeration(start);
+
     enumResult s;
     ui **bn;
     ui *bn_count;
@@ -9345,7 +9487,11 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
     ui *label_target = nullptr;
     InitLabelValByCandidates(query_graph, labelToCandidates, label_val, label_target);
     // record once every 1000 ms
-    const int interval_ms = 1000;
+    // const int interval_ms = 1000;
+
+    // record once every 100 ms
+    const int interval_ms = 100;
+
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL /*ms*/, interval_ms);
     int next_t = 0;                // the next timepoint to record timepoint（0,100,200,...）
@@ -9374,10 +9520,18 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
             // Fill in when reaching a time point: one loop may cross multiple timepoints
             if (next_t <= TimeL && ens >= next_t)
             {
-                ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                // ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                
+                const auto point = ReadCheckpoint(ens, embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                 
+                
                 while (next_t <= TimeL && ens >= next_t)
                 {
-                    PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    
+                    const auto kind = next_t + interval_ms <= TimeL && ens >= next_t + interval_ms ? CheckpointKind::GapFill : CheckpointKind::Sample;
+                    PushCheckpoint(ck, next_t, point, kind);
+                     
                     next_t += interval_ms;
                 }
             }
@@ -9430,6 +9584,9 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
                     UpdateLabelVal(data_graph, embedding[order_matrix[cur_depth]], nodeId, label_flag, label_val, label_cover_cnt);
                 }
                 embedding_cnt += 1;
+
+                if (embedding_cnt == 1) MarkFirstEmbedding();
+
                 visited_vertices[v] = false;
                 int ao = cur_depth; //-1;
                 ui vqo = order_matrix[ao];
@@ -9724,10 +9881,17 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
                         // Fill in when reaching a time point: one loop may cross multiple timepoints
                         if (next_t <= TimeL && ens >= next_t)
                         {
-                            ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                            // ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                            
+                            const auto point = ReadCheckpoint(ens, embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                            
                             while (next_t <= TimeL && ens >= next_t)
                             {
-                                PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                                // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                                
+                                const auto kind = next_t + interval_ms <= TimeL && ens >= next_t + interval_ms ? CheckpointKind::GapFill : CheckpointKind::Sample;
+                                PushCheckpoint(ck, next_t, point, kind);
+                                    
                                 next_t += interval_ms;
                             }
                         }
@@ -9778,6 +9942,9 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
                                 UpdateLabelVal(data_graph, embedding[order_matrix[cur_depth]], nodeId, label_flag, label_val, label_cover_cnt);
                             }
                             embedding_cnt += 1;
+
+                            if (embedding_cnt == 1) MarkFirstEmbedding();
+
                             visited_vertices[v] = false;
                             int ao = cur_depth;
                             ui vqo = order_matrix[ao];
@@ -9935,10 +10102,15 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
 EXIT:
 
     // final checkpoint at EXIT, make sure it's 2000ms finally
+    ck.final_point = ReadCheckpoint(EnumerationElapsedMs(), embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
     ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
     while (next_t <= TimeL)
     {
-        PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+        // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+        
+        const auto kind = next_t <= ck.final_point.observed_ms ? CheckpointKind::GapFill : CheckpointKind::TailFill;
+        PushCheckpoint(ck, next_t, ck.final_point, kind);
+        
         next_t += interval_ms;
     }
 
@@ -9954,36 +10126,37 @@ EXIT:
     }
     s.Can_embed = countSMU;
     // s.topk=greedysum;
-    std::cout << "\n--- Checkpoints ---\n";
-    if (embedding_cnt == 0)
-    {
-        for (ui i = 0; i < ck.sz; ++i)
-        {
-            std::cout << "CHECK" << "\t"
-                      << ck.time_point[i] << "\t"
-                      << ck.sat_point[i] << "\t"
-                      << ck.cov_sat_point[i] << "\t"
-                      << ck.avg_rel_cov_point[i] << "\t"
-                      << ck.call_count_point[i] << "\t"
-                      << ck.prune_count_point[i] << "\t"
-                      << -1 << "\n";
-        }
-    }
-    else
-    {
-        for (ui i = 0; i < ck.sz; ++i)
-        {
-            std::cout << "CHECK" << "\t"
-                      << ck.time_point[i] << "\t"
-                      << ck.sat_point[i] << "\t"
-                      << ck.cov_sat_point[i] << "\t"
-                      << ck.avg_rel_cov_point[i] << "\t"
-                      << ck.call_count_point[i] << "\t"
-                      << ck.prune_count_point[i] << "\t"
-                      << ck.embedding_cnt_point[i] << "\n";
-        }
-    }
+    // std::cout << "\n--- Checkpoints ---\n";
+    // if (embedding_cnt == 0)
+    // {
+    //     for (ui i = 0; i < ck.sz; ++i)
+    //     {
+    //         std::cout << "CHECK" << "\t"
+    //                   << ck.time_point[i] << "\t"
+    //                   << ck.sat_point[i] << "\t"
+    //                   << ck.cov_sat_point[i] << "\t"
+    //                   << ck.avg_rel_cov_point[i] << "\t"
+    //                   << ck.call_count_point[i] << "\t"
+    //                   << ck.prune_count_point[i] << "\t"
+    //                   << -1 << "\n";
+    //     }
+    // }
+    // else
+    // {
+    //     for (ui i = 0; i < ck.sz; ++i)
+    //     {
+    //         std::cout << "CHECK" << "\t"
+    //                   << ck.time_point[i] << "\t"
+    //                   << ck.sat_point[i] << "\t"
+    //                   << ck.cov_sat_point[i] << "\t"
+    //                   << ck.avg_rel_cov_point[i] << "\t"
+    //                   << ck.call_count_point[i] << "\t"
+    //                   << ck.prune_count_point[i] << "\t"
+    //                   << ck.embedding_cnt_point[i] << "\n";
+    //     }
+    // }
 
+    PrintCheckpoints(ck, false);
     DestroyCheckpointRecorder(ck);
     DestroyLabelsQuery(labelsQuery);
 
@@ -10000,6 +10173,7 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
 {
 
     auto start = std::chrono::high_resolution_clock::now();
+    BeginEnumeration(start);
     std::vector<VertexID> priority_neighbors;  // To store neighbors that are is_used[nbrs[i]]
     std::vector<VertexID> secondary_neighbors; // To store neighbors that are not is_used[nbrs[i]]
     enumResult s;
@@ -10066,7 +10240,11 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
     ui *label_target = nullptr;
     InitLabelValByCandidates(query_graph, labelToCandidates, label_val, label_target);
     // record once every 1000 ms
-    const int interval_ms = 1000;
+    // const int interval_ms = 1000;
+
+    // record once every 100 ms
+    const int interval_ms = 100;
+
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL /*ms*/, interval_ms);
     int next_t = 0;                // the next timepoint to record timepoint（0,100,200,...）
@@ -10096,10 +10274,16 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
             // Fill in when reaching a time point: one loop may cross multiple timepoints
             if (next_t <= TimeL && ens >= next_t)
             {
-                ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                // ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                
+                const auto point = ReadCheckpoint(ens, embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                
                 while (next_t <= TimeL && ens >= next_t)
                 {
-                    PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    const auto kind = next_t + interval_ms <= TimeL && ens >= next_t + interval_ms ? CheckpointKind::GapFill : CheckpointKind::Sample;
+                    PushCheckpoint(ck, next_t, point, kind);
+                                         
                     next_t += interval_ms;
                 }
             }
@@ -10147,6 +10331,9 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                     UpdateLabelVal(data_graph, embedding[order[cur_depth]], nodeId, label_flag, label_val, label_cover_cnt);
                 }
                 embedding_cnt += 1;
+
+                if (embedding_cnt == 1) MarkFirstEmbedding();
+
                 visited_vertices[v] = false;
                 int ao = cur_depth; //-1;
                 ui vqo = order[ao];
@@ -10380,10 +10567,16 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                     // Fill in when reaching a time point: one loop may cross multiple timepoints
                     if (next_t <= TimeL && ens >= next_t)
                     {
-                        ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                        // ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                        const auto point = ReadCheckpoint(ens, embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                        
                         while (next_t <= TimeL && ens >= next_t)
                         {
-                            PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                            // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                            
+                            const auto kind = next_t + interval_ms <= TimeL && ens >= next_t + interval_ms ? CheckpointKind::GapFill : CheckpointKind::Sample;
+                            PushCheckpoint(ck, next_t, point, kind);
+                             
                             next_t += interval_ms;
                         }
                     }
@@ -10435,6 +10628,9 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                             UpdateLabelVal(data_graph, embedding[order_matrix[cur_depth]], nodeId, label_flag, label_val, label_cover_cnt);
                         }
                         embedding_cnt += 1;
+
+                        if (embedding_cnt == 1) MarkFirstEmbedding();
+
                         visited_vertices[v] = false;
                         int ao = cur_depth; //-1;
                         ui vqo = order_matrix[ao];
@@ -10541,10 +10737,14 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
 EXIT:
 
     // final checkpoint at EXIT, make sure it's 2000ms finally
+    ck.final_point = ReadCheckpoint(EnumerationElapsedMs(), embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
     ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
     while (next_t <= TimeL)
     {
-        PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+        // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+        const auto kind = next_t <= ck.final_point.observed_ms ? CheckpointKind::GapFill : CheckpointKind::TailFill;
+        PushCheckpoint(ck, next_t, ck.final_point, kind);
+        
         next_t += interval_ms;
     }
 
@@ -10560,36 +10760,37 @@ EXIT:
     }
     s.Can_embed = countSMU;
     // s.topk=greedysum;
-    std::cout << "\n--- Checkpoints ---\n";
-    if (embedding_cnt == 0)
-    {
-        for (ui i = 0; i < ck.sz; ++i)
-        {
-            std::cout << "CHECK" << "\t"
-                      << ck.time_point[i] << "\t"
-                      << ck.sat_point[i] << "\t"
-                      << ck.cov_sat_point[i] << "\t"
-                      << ck.avg_rel_cov_point[i] << "\t"
-                      << ck.call_count_point[i] << "\t"
-                      << ck.prune_count_point[i] << "\t"
-                      << -1 << "\n";
-        }
-    }
-    else
-    {
-        for (ui i = 0; i < ck.sz; ++i)
-        {
-            std::cout << "CHECK" << "\t"
-                      << ck.time_point[i] << "\t"
-                      << ck.sat_point[i] << "\t"
-                      << ck.cov_sat_point[i] << "\t"
-                      << ck.avg_rel_cov_point[i] << "\t"
-                      << ck.call_count_point[i] << "\t"
-                      << ck.prune_count_point[i] << "\t"
-                      << ck.embedding_cnt_point[i] << "\n";
-        }
-    }
+    // std::cout << "\n--- Checkpoints ---\n";
+    // if (embedding_cnt == 0)
+    // {
+    //     for (ui i = 0; i < ck.sz; ++i)
+    //     {
+    //         std::cout << "CHECK" << "\t"
+    //                   << ck.time_point[i] << "\t"
+    //                   << ck.sat_point[i] << "\t"
+    //                   << ck.cov_sat_point[i] << "\t"
+    //                   << ck.avg_rel_cov_point[i] << "\t"
+    //                   << ck.call_count_point[i] << "\t"
+    //                   << ck.prune_count_point[i] << "\t"
+    //                   << -1 << "\n";
+    //     }
+    // }
+    // else
+    // {
+    //     for (ui i = 0; i < ck.sz; ++i)
+    //     {
+    //         std::cout << "CHECK" << "\t"
+    //                   << ck.time_point[i] << "\t"
+    //                   << ck.sat_point[i] << "\t"
+    //                   << ck.cov_sat_point[i] << "\t"
+    //                   << ck.avg_rel_cov_point[i] << "\t"
+    //                   << ck.call_count_point[i] << "\t"
+    //                   << ck.prune_count_point[i] << "\t"
+    //                   << ck.embedding_cnt_point[i] << "\n";
+    //     }
+    // }
 
+    PrintCheckpoints(ck, false);
     DestroyCheckpointRecorder(ck);
     DestroyLabelsQuery(labelsQuery);
 
@@ -10612,6 +10813,7 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
+    BeginEnumeration(start);
 
     enumResult s;
     // Generate bn.
@@ -10706,7 +10908,9 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
     ui *label_target = nullptr;
     InitLabelValByCandidates(query_graph, labelToCandidates, label_val, label_target);
     // record once every 1000 ms
-    const int interval_ms = 1000;
+    // const int interval_ms = 1000;
+    // record once every 100 ms
+    const int interval_ms = 100;
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL /*ms*/, interval_ms);
     int next_t = 0;                // the next timepoint to record timepoint（0,100,200,...）
@@ -10736,10 +10940,17 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
             // Fill in when reaching a time point: one loop may cross multiple timepoints
             if (next_t <= TimeL && ens >= next_t)
             {
-                ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                // ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                
+                const auto point = ReadCheckpoint(ens, embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                
                 while (next_t <= TimeL && ens >= next_t)
                 {
-                    PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    
+                    const auto kind = next_t + interval_ms <= TimeL && ens >= next_t + interval_ms ? CheckpointKind::GapFill : CheckpointKind::Sample;
+                    PushCheckpoint(ck, next_t, point, kind);
+                    
                     next_t += interval_ms;
                 }
             }
@@ -10856,10 +11067,15 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
             // Fill in when reaching a time point: one loop may cross multiple timepoints
             if (next_t <= TimeL && ens >= next_t)
             {
-                ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                // ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                const auto point = ReadCheckpoint(ens, embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                
                 while (next_t <= TimeL && ens >= next_t)
                 {
-                    PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    const auto kind = next_t + interval_ms <= TimeL && ens >= next_t + interval_ms ? CheckpointKind::GapFill : CheckpointKind::Sample;
+                    PushCheckpoint(ck, next_t, point, kind);
+                    
                     next_t += interval_ms;
                 }
             }
@@ -11108,7 +11324,7 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
             visited_vertices[v] = true;
             idx[cur_depth] += 1; // next element
 
-            while (cur_depth < idx_count[cur_depth] && valid_candidate_idx[cur_depth][idx[cur_depth]] == 10000000)
+            while (idx[cur_depth] < idx_count[cur_depth] && valid_candidate_idx[cur_depth][idx[cur_depth]] == 10000000)
             {
                 idx[cur_depth] += 1;
             }
@@ -11117,41 +11333,45 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
 
             if (cur_depth == max_depth - 1)
             {
-                embedding_cnt += 1;
+                // embedding_cnt += 1;
+                // if (embedding_cnt == 1) MarkFirstEmbedding();
+                GreedyConstructEmbedding(data_graph, query_graph, candidates, order, VN, embedding, nodeId, label_flag, label_val, label_cover_cnt, embedding_cnt, cur_depth, false, 0, nullptr, print_embedding);
                 visited_vertices[v] = false;
                 embd_vertices[v] = false;
                 counter--;
-                int UNPMtemp = 0;
-                // UNPMtemp=EmbSum.insert(embedding[order[cur_depth]]).second;
+                // int UNPMtemp = 0;
+                // // UNPMtemp=EmbSum.insert(embedding[order[cur_depth]]).second;
 
-                int ao = cur_depth; //-1;
-                ui vqo = order[ao];
-                int UNPM2 = 0;
-                UNPM = 0; //
-                while (ao >= 0)
-                {
-                    Match_BA[ao] = true;
-                    // EmbSum.insert(embedding[vqo]);
-                    // UNPMtemp = EmbSum.insert(embedding[vqo]).second;
-                    // nodeId[embedding[vqo]]=1;
-                    UpdateLabelVal(data_graph, embedding[vqo], nodeId, label_flag, label_val, label_cover_cnt);
-                    //&&ao!=max_depth-1
-                    if (VN[vqo].size() > 0)
-                    {
-                        for (int dd = 0; dd < VN[vqo].size(); dd++)
-                        {
-                            if (VN[vqo][dd] != 10000000)
-                            {
-                                // nodeId[candidates[vqo][VN[vqo][dd]]]=1;
-                                UpdateLabelVal(data_graph, candidates[vqo][VN[vqo][dd]], nodeId, label_flag, label_val, label_cover_cnt);
-                            }
-                        }
-                    }
+                // int ao = cur_depth; //-1;
+                // ui vqo = order[ao];
+                // int UNPM2 = 0;
+                // UNPM = 0; //
+                // while (ao >= 0)
+                // {
+                //     Match_BA[ao] = true;
+                //     // EmbSum.insert(embedding[vqo]);
+                //     // UNPMtemp = EmbSum.insert(embedding[vqo]).second;
+                //     // nodeId[embedding[vqo]]=1;
+                //     UpdateLabelVal(data_graph, embedding[vqo], nodeId, label_flag, label_val, label_cover_cnt);
+                //     //&&ao!=max_depth-1
+                //     if (VN[vqo].size() > 0)
+                //     {
+                //         for (int dd = 0; dd < VN[vqo].size(); dd++)
+                //         {
+                //             if (VN[vqo][dd] != 10000000)
+                //             {
+                //                 // nodeId[candidates[vqo][VN[vqo][dd]]]=1;
+                //                 UpdateLabelVal(data_graph, candidates[vqo][VN[vqo][dd]], nodeId, label_flag, label_val, label_cover_cnt);
+                //             }
+                //         }
+                //     }
 
-                    // Match_BA[ao] = true;
-                    ao--;
-                    vqo = order[ao];
-                }
+                //     // Match_BA[ao] = true;
+                //     ao--;
+                //     vqo = order[ao];
+                // }
+
+                std::fill(Match_BA, Match_BA + cur_depth + 1, true);
 
                 reverse_embedding.erase(embedding[u]);
                 vec_failing_set[cur_depth].set();
@@ -11245,10 +11465,14 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
 EXIT:
 
     // final checkpoint at EXIT, make sure it's 2000ms finally
+    ck.final_point = ReadCheckpoint(EnumerationElapsedMs(), embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
     ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
     while (next_t <= TimeL)
     {
-        PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+        // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+        const auto kind = next_t <= ck.final_point.observed_ms ? CheckpointKind::GapFill : CheckpointKind::TailFill;
+        PushCheckpoint(ck, next_t, ck.final_point, kind);
+        
         next_t += interval_ms;
     }
 
@@ -11269,36 +11493,37 @@ EXIT:
     s.embedding_cnt = embedding_cnt;
     s.candidate_true_count_sum = true_cand_sum;
 
-    std::cout << "\n--- Checkpoints ---\n";
-    if (embedding_cnt == 0)
-    {
-        for (ui i = 0; i < ck.sz; ++i)
-        {
-            std::cout << "CHECK" << "\t"
-                      << ck.time_point[i] << "\t"
-                      << ck.sat_point[i] << "\t"
-                      << ck.cov_sat_point[i] << "\t"
-                      << ck.avg_rel_cov_point[i] << "\t"
-                      << ck.call_count_point[i] << "\t"
-                      << ck.prune_count_point[i] << "\t"
-                      << -1 << "\n";
-        }
-    }
-    else
-    {
-        for (ui i = 0; i < ck.sz; ++i)
-        {
-            std::cout << "CHECK" << "\t"
-                      << ck.time_point[i] << "\t"
-                      << ck.sat_point[i] << "\t"
-                      << ck.cov_sat_point[i] << "\t"
-                      << ck.avg_rel_cov_point[i] << "\t"
-                      << ck.call_count_point[i] << "\t"
-                      << ck.prune_count_point[i] << "\t"
-                      << ck.embedding_cnt_point[i] << "\n";
-        }
-    }
+    // std::cout << "\n--- Checkpoints ---\n";
+    // if (embedding_cnt == 0)
+    // {
+    //     for (ui i = 0; i < ck.sz; ++i)
+    //     {
+    //         std::cout << "CHECK" << "\t"
+    //                   << ck.time_point[i] << "\t"
+    //                   << ck.sat_point[i] << "\t"
+    //                   << ck.cov_sat_point[i] << "\t"
+    //                   << ck.avg_rel_cov_point[i] << "\t"
+    //                   << ck.call_count_point[i] << "\t"
+    //                   << ck.prune_count_point[i] << "\t"
+    //                   << -1 << "\n";
+    //     }
+    // }
+    // else
+    // {
+    //     for (ui i = 0; i < ck.sz; ++i)
+    //     {
+    //         std::cout << "CHECK" << "\t"
+    //                   << ck.time_point[i] << "\t"
+    //                   << ck.sat_point[i] << "\t"
+    //                   << ck.cov_sat_point[i] << "\t"
+    //                   << ck.avg_rel_cov_point[i] << "\t"
+    //                   << ck.call_count_point[i] << "\t"
+    //                   << ck.prune_count_point[i] << "\t"
+    //                   << ck.embedding_cnt_point[i] << "\n";
+    //     }
+    // }
 
+    PrintCheckpoints(ck, false);
     DestroyCheckpointRecorder(ck);
     DestroyLabelsQuery(labelsQuery);
 
@@ -11349,7 +11574,8 @@ EvaluateQuery::MatCoDIV(const Graph *data_graph, const Graph *query_graph, ui *&
     computeDiversity(query_graph, query_graph->getVerticesCount(), candidates, candidates_count, nodeId, labelToCandidates, label_target); // compute diversity coverage
 
     s.Can_embed = 0;
-    s.embedding_cnt = 0;
+    // s.embedding_cnt = 0;
+    s.embedding_cnt = matco->GetEmbeddingCount();
     s.candidate_true_count_sum = 0;
 
     return s;
@@ -12040,6 +12266,7 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
+    BeginEnumeration(start);
 
     enumResult s;
     // Generate bn.
@@ -12171,7 +12398,8 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
     ui *valid_candidate_idx_temp = new ui[max_candidates];
     // checkpoint for time
     // every 100ms
-    const int interval_ms = 1000;
+    // const int interval_ms = 1000;
+    const int interval_ms = 100;
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL /*ms*/, interval_ms);
     int next_t = 0;                // next time point to record, initially 0ms, then 100ms, 200ms, ...
@@ -12249,9 +12477,16 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
             if (next_t <= TimeL && ens >= next_t)
             {
                 ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                
+                const auto point = ReadCheckpoint(ens, embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target, embedding_count1, embedding_count2, embedding_count3);
+                
                 while (next_t <= TimeL && ens >= next_t)
                 {
-                    PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    
+                    const auto kind = next_t + interval_ms <= TimeL && ens >= next_t + interval_ms ? CheckpointKind::GapFill : CheckpointKind::Sample;
+                    PushCheckpoint(ck, next_t, point, kind);
+                     
                     next_t += interval_ms;
                 }
             }
@@ -12683,10 +12918,15 @@ EXIT:
     // embedding_cnt = printed_embedding_cnt;
 
     // final checkpointing at TimeL
+    ck.final_point = ReadCheckpoint(EnumerationElapsedMs(), embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target, embedding_count1, embedding_count2, embedding_count3);
+     
     ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
     while (next_t <= TimeL)
     {
-        PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+        // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+        const auto kind = next_t <= ck.final_point.observed_ms ? CheckpointKind::GapFill : CheckpointKind::TailFill;
+        PushCheckpoint(ck, next_t, ck.final_point, kind);
+         
         next_t += interval_ms;
     }
 
@@ -12707,36 +12947,36 @@ EXIT:
     s.embedding_cnt = embedding_cnt;
     s.candidate_true_count_sum = true_cand_sum;
 
-    std::cout << "\n--- Checkpoints ---\n";
-    if (embedding_cnt == 0)
-    {
-        for (ui i = 0; i < ck.sz; ++i)
-        {
-            std::cout << "CHECK" << "\t"
-                      << ck.time_point[i] << "\t"
-                      << ck.sat_point[i] << "\t"
-                      << ck.cov_sat_point[i] << "\t"
-                      << ck.avg_rel_cov_point[i] << "\t"
-                      << ck.call_count_point[i] << "\t"
-                      << ck.prune_count_point[i] << "\t"
-                      << -1 << "\n";
-        }
-    }
-    else
-    {
-        for (ui i = 0; i < ck.sz; ++i)
-        {
-            std::cout << "CHECK" << "\t"
-                      << ck.time_point[i] << "\t"
-                      << ck.sat_point[i] << "\t"
-                      << ck.cov_sat_point[i] << "\t"
-                      << ck.avg_rel_cov_point[i] << "\t"
-                      << ck.call_count_point[i] << "\t"
-                      << ck.prune_count_point[i] << "\t"
-                      << ck.embedding_cnt_point[i] << "\n";
-        }
-    }
-
+    // std::cout << "\n--- Checkpoints ---\n";
+    // if (embedding_cnt == 0)
+    // {
+    //     for (ui i = 0; i < ck.sz; ++i)
+    //     {
+    //         std::cout << "CHECK" << "\t"
+    //                   << ck.time_point[i] << "\t"
+    //                   << ck.sat_point[i] << "\t"
+    //                   << ck.cov_sat_point[i] << "\t"
+    //                   << ck.avg_rel_cov_point[i] << "\t"
+    //                   << ck.call_count_point[i] << "\t"
+    //                   << ck.prune_count_point[i] << "\t"
+    //                   << -1 << "\n";
+    //     }
+    // }
+    // else
+    // {
+    //     for (ui i = 0; i < ck.sz; ++i)
+    //     {
+    //         std::cout << "CHECK" << "\t"
+    //                   << ck.time_point[i] << "\t"
+    //                   << ck.sat_point[i] << "\t"
+    //                   << ck.cov_sat_point[i] << "\t"
+    //                   << ck.avg_rel_cov_point[i] << "\t"
+    //                   << ck.call_count_point[i] << "\t"
+    //                   << ck.prune_count_point[i] << "\t"
+    //                   << ck.embedding_cnt_point[i] << "\n";
+    //     }
+    // }
+    PrintCheckpoints(ck, true);
     DestroyCheckpointRecorder(ck);
     DestroyLabelsQuery(labelsQuery);
 
@@ -12780,6 +13020,7 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
+    BeginEnumeration(start);
 
     enumResult s;
     // Generate bn.
@@ -12896,7 +13137,8 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
     ui *valid_candidate_idx_temp = new ui[max_candidates];
     // checkpoint for time
     // every 100ms
-    const int interval_ms = 1000;
+    // const int interval_ms = 1000;
+    const int interval_ms = 100;
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL /*ms*/, interval_ms);
     int next_t = 0;                // next time point to record, initially 0ms, then 100ms, 200ms, ...
@@ -12937,10 +13179,15 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
             // checkpointing, make sure we record at every 100ms
             if (next_t <= TimeL && ens >= next_t)
             {
-                ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                // ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                const auto point = ReadCheckpoint(ens, embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target, embedding_count1, embedding_count2, embedding_count3);
+                 
                 while (next_t <= TimeL && ens >= next_t)
                 {
-                    PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    const auto kind = next_t + interval_ms <= TimeL && ens >= next_t + interval_ms ? CheckpointKind::GapFill : CheckpointKind::Sample;
+                    PushCheckpoint(ck, next_t, point, kind);
+                     
                     next_t += interval_ms;
                 }
             }
@@ -13311,10 +13558,14 @@ EXIT:
     // embedding_cnt = printed_embedding_cnt;
 
     // final checkpointing at TimeL
+    ck.final_point = ReadCheckpoint(EnumerationElapsedMs(), embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target, embedding_count1, embedding_count2, embedding_count3);
+     
     ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
     while (next_t <= TimeL)
     {
-        PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+        // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+        const auto kind = next_t <= ck.final_point.observed_ms ? CheckpointKind::GapFill : CheckpointKind::TailFill;
+        PushCheckpoint(ck, next_t, ck.final_point, kind);
         next_t += interval_ms;
     }
 
@@ -13335,36 +13586,36 @@ EXIT:
     s.embedding_cnt = embedding_cnt;
     s.candidate_true_count_sum = true_cand_sum;
 
-    std::cout << "\n--- Checkpoints ---\n";
-    if (embedding_cnt == 0)
-    {
-        for (ui i = 0; i < ck.sz; ++i)
-        {
-            std::cout << "CHECK" << "\t"
-                      << ck.time_point[i] << "\t"
-                      << ck.sat_point[i] << "\t"
-                      << ck.cov_sat_point[i] << "\t"
-                      << ck.avg_rel_cov_point[i] << "\t"
-                      << ck.call_count_point[i] << "\t"
-                      << ck.prune_count_point[i] << "\t"
-                      << -1 << "\n";
-        }
-    }
-    else
-    {
-        for (ui i = 0; i < ck.sz; ++i)
-        {
-            std::cout << "CHECK" << "\t"
-                      << ck.time_point[i] << "\t"
-                      << ck.sat_point[i] << "\t"
-                      << ck.cov_sat_point[i] << "\t"
-                      << ck.avg_rel_cov_point[i] << "\t"
-                      << ck.call_count_point[i] << "\t"
-                      << ck.prune_count_point[i] << "\t"
-                      << ck.embedding_cnt_point[i] << "\n";
-        }
-    }
-
+    // std::cout << "\n--- Checkpoints ---\n";
+    // if (embedding_cnt == 0)
+    // {
+    //     for (ui i = 0; i < ck.sz; ++i)
+    //     {
+    //         std::cout << "CHECK" << "\t"
+    //                   << ck.time_point[i] << "\t"
+    //                   << ck.sat_point[i] << "\t"
+    //                   << ck.cov_sat_point[i] << "\t"
+    //                   << ck.avg_rel_cov_point[i] << "\t"
+    //                   << ck.call_count_point[i] << "\t"
+    //                   << ck.prune_count_point[i] << "\t"
+    //                   << -1 << "\n";
+    //     }
+    // }
+    // else
+    // {
+    //     for (ui i = 0; i < ck.sz; ++i)
+    //     {
+    //         std::cout << "CHECK" << "\t"
+    //                   << ck.time_point[i] << "\t"
+    //                   << ck.sat_point[i] << "\t"
+    //                   << ck.cov_sat_point[i] << "\t"
+    //                   << ck.avg_rel_cov_point[i] << "\t"
+    //                   << ck.call_count_point[i] << "\t"
+    //                   << ck.prune_count_point[i] << "\t"
+    //                   << ck.embedding_cnt_point[i] << "\n";
+    //     }
+    // }
+    PrintCheckpoints(ck, true);
     DestroyCheckpointRecorder(ck);
     DestroyLabelsQuery(labelsQuery);
 
@@ -13400,6 +13651,7 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
+    BeginEnumeration(start);
 
     enumResult s;
     // Generate bn.
@@ -13531,7 +13783,8 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
     ui *valid_candidate_idx_temp = new ui[max_candidates];
     // checkpoint for time
     // every 100ms
-    const int interval_ms = 1000;
+    // const int interval_ms = 1000;
+    const int interval_ms = 100;
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL /*ms*/, interval_ms);
     int next_t = 0;                // next time point to record, initially 0ms, then 100ms, 200ms, ...
@@ -13608,10 +13861,14 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
             // checkpointing, make sure we record at every 100ms
             if (next_t <= TimeL && ens >= next_t)
             {
-                ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                // ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+                const auto point = ReadCheckpoint(ens, embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target, embedding_count1, embedding_count2, embedding_count3);
+                 
                 while (next_t <= TimeL && ens >= next_t)
                 {
-                    PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+                    const auto kind = next_t + interval_ms <= TimeL && ens >= next_t + interval_ms ? CheckpointKind::GapFill : CheckpointKind::Sample;
+                    PushCheckpoint(ck, next_t, point, kind);
                     next_t += interval_ms;
                 }
             }
@@ -14022,10 +14279,14 @@ EXIT:
     // embedding_cnt = printed_embedding_cnt;
 
     // final checkpointing at TimeL
+    ck.final_point = ReadCheckpoint(EnumerationElapsedMs(), embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target, embedding_count1, embedding_count2, embedding_count3);
     ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
     while (next_t <= TimeL)
     {
-        PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+        // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
+        const auto kind = next_t <= ck.final_point.observed_ms ? CheckpointKind::GapFill : CheckpointKind::TailFill;
+        PushCheckpoint(ck, next_t, ck.final_point, kind);
+         
         next_t += interval_ms;
     }
 
@@ -14046,36 +14307,36 @@ EXIT:
     s.embedding_cnt = embedding_cnt;
     s.candidate_true_count_sum = true_cand_sum;
 
-    std::cout << "\n--- Checkpoints ---\n";
-    if (embedding_cnt == 0)
-    {
-        for (ui i = 0; i < ck.sz; ++i)
-        {
-            std::cout << "CHECK" << "\t"
-                      << ck.time_point[i] << "\t"
-                      << ck.sat_point[i] << "\t"
-                      << ck.cov_sat_point[i] << "\t"
-                      << ck.avg_rel_cov_point[i] << "\t"
-                      << ck.call_count_point[i] << "\t"
-                      << ck.prune_count_point[i] << "\t"
-                      << -1 << "\n";
-        }
-    }
-    else
-    {
-        for (ui i = 0; i < ck.sz; ++i)
-        {
-            std::cout << "CHECK" << "\t"
-                      << ck.time_point[i] << "\t"
-                      << ck.sat_point[i] << "\t"
-                      << ck.cov_sat_point[i] << "\t"
-                      << ck.avg_rel_cov_point[i] << "\t"
-                      << ck.call_count_point[i] << "\t"
-                      << ck.prune_count_point[i] << "\t"
-                      << ck.embedding_cnt_point[i] << "\n";
-        }
-    }
-
+    // std::cout << "\n--- Checkpoints ---\n";
+    // if (embedding_cnt == 0)
+    // {
+    //     for (ui i = 0; i < ck.sz; ++i)
+    //     {
+    //         std::cout << "CHECK" << "\t"
+    //                   << ck.time_point[i] << "\t"
+    //                   << ck.sat_point[i] << "\t"
+    //                   << ck.cov_sat_point[i] << "\t"
+    //                   << ck.avg_rel_cov_point[i] << "\t"
+    //                   << ck.call_count_point[i] << "\t"
+    //                   << ck.prune_count_point[i] << "\t"
+    //                   << -1 << "\n";
+    //     }
+    // }
+    // else
+    // {
+    //     for (ui i = 0; i < ck.sz; ++i)
+    //     {
+    //         std::cout << "CHECK" << "\t"
+    //                   << ck.time_point[i] << "\t"
+    //                   << ck.sat_point[i] << "\t"
+    //                   << ck.cov_sat_point[i] << "\t"
+    //                   << ck.avg_rel_cov_point[i] << "\t"
+    //                   << ck.call_count_point[i] << "\t"
+    //                   << ck.prune_count_point[i] << "\t"
+    //                   << ck.embedding_cnt_point[i] << "\n";
+    //     }
+    // }
+    PrintCheckpoints(ck, true);
     DestroyCheckpointRecorder(ck);
     DestroyLabelsQuery(labelsQuery);
 

@@ -8,6 +8,7 @@
 #include "utility/primitive/projection.h"
 #include "utility/relation/catalog.h"
 #include <vector>
+#include <chrono>
 #include <utility>
 #include <limits>
 #include <queue>
@@ -174,26 +175,49 @@ public:
                                     Edges ***edge_matrix, ui **bn, ui *bn_count, ui *&temp_buffer, ui *&valid_candidate_idx_temp, const std::unordered_map<VertexID, std::pair<std::set<VertexID>, std::set<VertexID>>> &ordered_constraints);
 
     // checkpoints
-    struct CheckpointRecorder
-    {
-        ui cap = 0; // maximum number of checkpoint records
-        ui sz = 0;  // how many records it currently stores
+    // struct CheckpointRecorder
+    // {
+    //     ui cap = 0; // maximum number of checkpoint records
+    //     ui sz = 0;  // how many records it currently stores
 
-        int *time_point = nullptr;
-        double *sat_point = nullptr;         // hard / step-function satisfaction
-        double *cov_sat_point = nullptr;     // min-based coverage satisfaction
-        double *avg_rel_cov_point = nullptr; // average relative coverage rate
-        size_t *call_count_point = nullptr;
-        ui *prune_count_point = nullptr;
-        size_t *embedding_cnt_point = nullptr;
+    //     int *time_point = nullptr;
+    //     double *sat_point = nullptr;         // hard / step-function satisfaction
+    //     double *cov_sat_point = nullptr;     // min-based coverage satisfaction
+    //     double *avg_rel_cov_point = nullptr; // average relative coverage rate
+    //     size_t *call_count_point = nullptr;
+    //     ui *prune_count_point = nullptr;
+    //     size_t *embedding_cnt_point = nullptr;
+    using EnumClock = std::chrono::high_resolution_clock;
+    enum class CheckpointKind { Sample, GapFill, TailFill, Final };
+    struct Checkpoint {
+        double t_ms, observed_ms; // fixed grid time; actual observation time
+        long long peak_kib;
+        size_t total, base, vn, vnsub;
+        size_t absolute_coverage; // distinct vertices in the algorithm's covered set
+        double hard_sat, cov_sat;
+        CheckpointKind kind;
     };
-    static void InitCheckpointRecorder(CheckpointRecorder &rec, int time_limit_ms, int interval_ms);
-    static void PushCheckpoint(CheckpointRecorder &rec, int t_ms, double sat, double cov_sat, double avg_rel_cov, size_t call_count, ui prune_count, size_t embedding_cnt);
-    static void DestroyCheckpointRecorder(CheckpointRecorder &rec);
+    struct CheckpointRecorder {
+        std::vector<Checkpoint> points;
+        Checkpoint final_point{}; // actual finish, separate from padding to TimeL
+    };
+    // static void InitCheckpointRecorder(CheckpointRecorder &rec, int time_limit_ms, int interval_ms);
+    // static void PushCheckpoint(CheckpointRecorder &rec, int t_ms, double sat, double cov_sat, double avg_rel_cov, size_t call_count, ui prune_count, size_t embedding_cnt);
+    // static void DestroyCheckpointRecorder(CheckpointRecorder &rec);
+    static void BeginEnumeration(EnumClock::time_point start);
+    static double EnumerationElapsedMs();
+    static void MarkFirstEmbedding();
+    static void InitCheckpointRecorder(CheckpointRecorder& rec, int limit_ms, int interval_ms);
+    static Checkpoint ReadCheckpoint(double observed_ms, size_t total,const LabelID* labelsQuery, ui labelsQuerySize,const uint8_t* label_flag, const ui* label_cover_cnt,const ui* label_target,size_t base = 0, size_t vn = 0, size_t vnsub = 0);
+    static void PushCheckpoint(CheckpointRecorder& rec, int t_ms, const Checkpoint& point, CheckpointKind kind);
+    static void PrintCheckpoints(const CheckpointRecorder& rec, bool split);
+    static void DestroyCheckpointRecorder(CheckpointRecorder& rec);
+
     static void BuildLabelsQuery(const Graph *query_graph, ui qsiz, LabelID *&labelsQuery, ui &labelsQuerySize);
     static void DestroyLabelsQuery(LabelID *&labelsQuery);
-    static void ComputeSatCovAndRelCov(double &last_sat, double &last_cov_sat, double &last_avg_rel_cov, const LabelID *labelsQuery, ui labelsQuerySize, const uint8_t *label_flag, const ui *label_cover_cnt, const ui *label_target);
-
+    // static void ComputeSatCovAndRelCov(double &last_sat, double &last_cov_sat, double &last_avg_rel_cov, const LabelID *labelsQuery, ui labelsQuerySize, const uint8_t *label_flag, const ui *label_cover_cnt, const ui *label_target);
+    static void ComputeSatCovAndRelCov(double &last_sat, double &last_cov_sat, double &last_avg_rel_cov, const LabelID *labelsQuery, ui labelsQuerySize, const uint8_t *label_flag, const ui *label_cover_cnt, const ui *label_target, size_t *absolute_coverage = nullptr);
+ 
     // forward equivalence set
     static void calculateCellAndSet(const Graph *query_graph, Edges ***edge_matrix, ui *candidates_count, size_t **&candidatesHC, std::unordered_map<size_t, std::vector<ui>> *&idToValues, int count2, int i, int j);
     static void calculateCellFNAndSet(const Graph *query_graph, Edges ***edge_matrix, ui *candidates_count, size_t **&candidatesHC, std::unordered_map<size_t, std::vector<ui>> *&idToValues, int count2, int i, int j, int ROQ[]);

@@ -209,7 +209,7 @@ void MatCo::InitialMatching()
 {
     timeout_ = false;
     start_time_ = std::chrono::high_resolution_clock::now();
-
+    EvaluateQuery::BeginEnumeration(start_time_);
     // NEW for diversity
     qsiz = query_->getVerticesCount();
     label_flag = nullptr;
@@ -288,37 +288,45 @@ void MatCo::BuildCover()
         m[u0] = UNMATCHED;
     }
 
+    // Capture actual finish once; preserve the original padding below.
+    eval_->ck.final_point = EvaluateQuery::ReadCheckpoint(EvaluateQuery::EnumerationElapsedMs(), embedding_cnt_, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+     
     // final checkpointing at TimeL
     EvaluateQuery::ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
 while (next_t <= time_limit_ms_) {
-    EvaluateQuery::PushCheckpoint(eval_->ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, 0, 0, embedding_cnt_);
+    // EvaluateQuery::PushCheckpoint(eval_->ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, 0, 0, embedding_cnt_);
+    const auto kind = next_t <= eval_->ck.final_point.observed_ms ? EvaluateQuery::CheckpointKind::GapFill : EvaluateQuery::CheckpointKind::TailFill;
+    EvaluateQuery::PushCheckpoint(eval_->ck, next_t, eval_->ck.final_point, kind);
+     
     next_t += interval_ms;
 }
 
-    std::cout << "\n--- Checkpoints ---\n";
-    if (embedding_cnt_ == 0) {
-        for (ui i = 0; i < eval_->ck.sz; ++i) {
-            std::cout << "CHECK" << "\t"
-  << eval_->ck.time_point[i] << "\t"
-  << eval_->ck.sat_point[i] << "\t"
-  << eval_->ck.cov_sat_point[i] << "\t"
-  << eval_->ck.avg_rel_cov_point[i] << "\t"
-  << eval_->ck.call_count_point[i] << "\t"
-  << eval_->ck.prune_count_point[i] << "\t"
-  << -1 << "\n";
-        }
-    }else {
-        for (ui i = 0; i < eval_->ck.sz; ++i) {
-            std::cout << "CHECK" << "\t"
-  << eval_->ck.time_point[i] << "\t"
-  << eval_->ck.sat_point[i] << "\t"
-  << eval_->ck.cov_sat_point[i] << "\t"
-  << eval_->ck.avg_rel_cov_point[i] << "\t"
-  << eval_->ck.call_count_point[i] << "\t"
-  << eval_->ck.prune_count_point[i] << "\t"
-  << eval_->ck.embedding_cnt_point[i] << "\n";
-        }
-    }
+//     std::cout << "\n--- Checkpoints ---\n";
+//     if (embedding_cnt_ == 0) {
+//         for (ui i = 0; i < eval_->ck.sz; ++i) {
+//             std::cout << "CHECK" << "\t"
+//   << eval_->ck.time_point[i] << "\t"
+//   << eval_->ck.sat_point[i] << "\t"
+//   << eval_->ck.cov_sat_point[i] << "\t"
+//   << eval_->ck.avg_rel_cov_point[i] << "\t"
+//   << eval_->ck.call_count_point[i] << "\t"
+//   << eval_->ck.prune_count_point[i] << "\t"
+//   << -1 << "\n";
+//         }
+//     }else {
+//         for (ui i = 0; i < eval_->ck.sz; ++i) {
+//             std::cout << "CHECK" << "\t"
+//   << eval_->ck.time_point[i] << "\t"
+//   << eval_->ck.sat_point[i] << "\t"
+//   << eval_->ck.cov_sat_point[i] << "\t"
+//   << eval_->ck.avg_rel_cov_point[i] << "\t"
+//   << eval_->ck.call_count_point[i] << "\t"
+//   << eval_->ck.prune_count_point[i] << "\t"
+//   << eval_->ck.embedding_cnt_point[i] << "\n";
+//         }
+//     }
+    EvaluateQuery::PrintCheckpoints(eval_->ck, false);
+    EvaluateQuery::DestroyCheckpointRecorder(eval_->ck);
 
 }
 
@@ -336,11 +344,17 @@ void MatCo::FindMatCo(uint depth, std::vector<uint> m)
 
     // checkpointing, make sure we record at every 100ms
     if (next_t <= time_limit_ms_ && ens >= next_t) {
-        EvaluateQuery::ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
-while (next_t <= time_limit_ms_ && ens >= next_t) {
-    EvaluateQuery::PushCheckpoint(eval_->ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, 0, 0, embedding_cnt_);
-    next_t += interval_ms;
-}
+//         EvaluateQuery::ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+// while (next_t <= time_limit_ms_ && ens >= next_t) {
+//     EvaluateQuery::PushCheckpoint(eval_->ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, 0, 0, embedding_cnt_);
+//     next_t += interval_ms;
+// }
+        const auto point = EvaluateQuery::ReadCheckpoint(ens, embedding_cnt_, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+        while (next_t <= time_limit_ms_ && ens >= next_t) {
+            const auto kind = next_t + interval_ms <= time_limit_ms_ && ens >= next_t + interval_ms ? EvaluateQuery::CheckpointKind::GapFill : EvaluateQuery::CheckpointKind::Sample;
+            EvaluateQuery::PushCheckpoint(eval_->ck, next_t, point, kind);
+            next_t += interval_ms;
+        }
     }
 
     if (ens > time_limit_ms_) {
@@ -396,6 +410,7 @@ while (next_t <= time_limit_ms_ && ens >= next_t) {
         {   
             num_initial_results_++;
             embedding_cnt_++;
+            if (embedding_cnt_ == 1) EvaluateQuery::MarkFirstEmbedding();
             for(auto j: m) {
                 if(KeyVertexSet[j]) continue;
                 else{
@@ -423,11 +438,17 @@ while (next_t <= time_limit_ms_ && ens >= next_t) {
 
         // checkpointing, make sure we record at every 100ms
         if (next_t <= time_limit_ms_ && ens >= next_t) {
-            EvaluateQuery::ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
-while (next_t <= time_limit_ms_ && ens >= next_t) {
-    EvaluateQuery::PushCheckpoint(eval_->ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, 0, 0, embedding_cnt_);
-    next_t += interval_ms;
-}
+//             EvaluateQuery::ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+// while (next_t <= time_limit_ms_ && ens >= next_t) {
+//     EvaluateQuery::PushCheckpoint(eval_->ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, 0, 0, embedding_cnt_);
+//     next_t += interval_ms;
+// }
+            const auto point = EvaluateQuery::ReadCheckpoint(ens, embedding_cnt_, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+            while (next_t <= time_limit_ms_ && ens >= next_t) {
+                const auto kind = next_t + interval_ms <= time_limit_ms_ && ens >= next_t + interval_ms ? EvaluateQuery::CheckpointKind::GapFill : EvaluateQuery::CheckpointKind::Sample;
+                EvaluateQuery::PushCheckpoint(eval_->ck, next_t, point, kind);
+                next_t += interval_ms;
+            }
         }
 
         if (ens > time_limit_ms_) {
@@ -494,6 +515,7 @@ void MatCo::CountRes(std::vector<uint> m){
     if(!flag_all_cv){
         num_initial_results_++;
         embedding_cnt_++;
+        if (embedding_cnt_ == 1) EvaluateQuery::MarkFirstEmbedding();
         if(print_enumeration_results_) PrintMatch(m);
     }
     //Go through local candidate space of and use uncovered vertices to replace m[u]
@@ -509,6 +531,8 @@ void MatCo::CountRes(std::vector<uint> m){
 
                 num_initial_results_++;
                 embedding_cnt_++;
+                if (embedding_cnt_ == 1) EvaluateQuery::MarkFirstEmbedding();
+                 
                 if(print_enumeration_results_){
                     // uint u = match_order [i] ; 
                     // m[u] = cand ;
@@ -595,11 +619,17 @@ bool MatCo::MutiExpTest(int depth,const std::vector<uint> &label_same_index, std
 
     // checkpointing, make sure we record at every 100ms
     if (next_t <= time_limit_ms_ && ens >= next_t) {
-        EvaluateQuery::ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
-while (next_t <= time_limit_ms_ && ens >= next_t) {
-    EvaluateQuery::PushCheckpoint(eval_->ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, 0, 0, embedding_cnt_);
-    next_t += interval_ms;
-}
+//         EvaluateQuery::ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+// while (next_t <= time_limit_ms_ && ens >= next_t) {
+//     EvaluateQuery::PushCheckpoint(eval_->ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, 0, 0, embedding_cnt_);
+//     next_t += interval_ms;
+// }
+        const auto point = EvaluateQuery::ReadCheckpoint(ens, embedding_cnt_, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
+        while (next_t <= time_limit_ms_ && ens >= next_t) {
+            const auto kind = next_t + interval_ms <= time_limit_ms_ && ens >= next_t + interval_ms ? EvaluateQuery::CheckpointKind::GapFill : EvaluateQuery::CheckpointKind::Sample;
+            EvaluateQuery::PushCheckpoint(eval_->ck, next_t, point, kind);
+            next_t += interval_ms;
+        }
     }
 
     if (ens > time_limit_ms_) {
