@@ -209,7 +209,8 @@ void MatCo::InitialMatching()
 {
     timeout_ = false;
     start_time_ = std::chrono::high_resolution_clock::now();
-    EvaluateQuery::BeginEnumeration(start_time_);
+    // EvaluateQuery::BeginEnumeration(start_time_);
+    EvaluateQuery::BeginEnumeration(start_time_, data_->getVerticesCount());
     // NEW for diversity
     qsiz = query_->getVerticesCount();
     label_flag = nullptr;
@@ -358,11 +359,17 @@ void MatCo::FindMatCo(uint depth, std::vector<uint> m)
     }
 
     if (ens > time_limit_ms_) {
+        if (eval_->ck.stop_reason == EvaluateQuery::EnumerationStop::Completed)
+            eval_->ck.stop_reason = EvaluateQuery::EnumerationStop::TimeLimit;
         timeout_ = true;
         return;
     }
 
-    if (num_initial_results_ >= max_num_results_) return; //max_num_results_ is set to ULONG_MAX by default 
+    if (num_initial_results_ >= max_num_results_) { //max_num_results_ is set to ULONG_MAX by default 
+        if (eval_->ck.stop_reason == EvaluateQuery::EnumerationStop::Completed)
+            eval_->ck.stop_reason = EvaluateQuery::EnumerationStop::OutputLimit;
+        return;
+    }
     if(!ComputeCand(depth,m)) {
         // empty_set_num++; // exist empty candidate set, return
         return;
@@ -428,7 +435,11 @@ void MatCo::FindMatCo(uint depth, std::vector<uint> m)
         }
         visited_[v] = false;
         m[u] = UNMATCHED;
-        if (num_initial_results_ >= max_num_results_) return;
+        if (num_initial_results_ >= max_num_results_) {
+            if (eval_->ck.stop_reason == EvaluateQuery::EnumerationStop::Completed)
+                eval_->ck.stop_reason = EvaluateQuery::EnumerationStop::OutputLimit;
+            return;
+        }
         // if (reach_time_limit) return;
 
         if (timeout_) return;
@@ -452,6 +463,8 @@ void MatCo::FindMatCo(uint depth, std::vector<uint> m)
         }
 
         if (ens > time_limit_ms_) {
+            if (eval_->ck.stop_reason == EvaluateQuery::EnumerationStop::Completed)
+                eval_->ck.stop_reason = EvaluateQuery::EnumerationStop::TimeLimit;
             timeout_ = true;
             return;
         }
@@ -505,6 +518,7 @@ void MatCo::CountRes(std::vector<uint> m){
     bool flag_all_cv = true ;
     for(uint i = 0 ; i<query_->getVerticesCount();i++){
         uint u = match_order[i];
+        EvaluateQuery::RecordCoveredVertex(m[u]);
         if(KeyVertexSet[m[u]]==false){
             // KeyVertexSet[m[u]] = true;
             EvaluateQuery::UpdateLabelVal(data_, m[u], KeyVertexSet, label_flag, label_val, label_cover_cnt);
@@ -528,6 +542,7 @@ void MatCo::CountRes(std::vector<uint> m){
 
                 const uint u = match_order[i];
                 m[u] = cand;
+                EvaluateQuery::RecordCoveredVertex(cand);
 
                 num_initial_results_++;
                 embedding_cnt_++;
@@ -633,6 +648,8 @@ bool MatCo::MutiExpTest(int depth,const std::vector<uint> &label_same_index, std
     }
 
     if (ens > time_limit_ms_) {
+        if (eval_->ck.stop_reason == EvaluateQuery::EnumerationStop::Completed)
+            eval_->ck.stop_reason = EvaluateQuery::EnumerationStop::TimeLimit;
         timeout_ = true;
         return false;
     }
