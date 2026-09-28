@@ -419,6 +419,7 @@ void MatCo::FindMatCo(uint depth, std::vector<uint> m)
             embedding_cnt_++;
             if (embedding_cnt_ == 1) EvaluateQuery::MarkFirstEmbedding();
             for(auto j: m) {
+                EvaluateQuery::RecordCoveredVertex(j);
                 if(KeyVertexSet[j]) continue;
                 else{
                     num_keyvertex_++;
