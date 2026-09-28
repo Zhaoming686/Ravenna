@@ -9,6 +9,7 @@
 #include "utility/relation/catalog.h"
 #include <vector>
 #include <chrono>
+#include <cstdint>
 #include <utility>
 #include <limits>
 #include <queue>
@@ -189,22 +190,40 @@ public:
     //     size_t *embedding_cnt_point = nullptr;
     using EnumClock = std::chrono::high_resolution_clock;
     enum class CheckpointKind { Sample, GapFill, TailFill, Final };
+    enum class EnumerationStop { Completed, TimeLimit, OutputLimit };
     struct Checkpoint {
         double t_ms, observed_ms; // fixed grid time; actual observation time
         long long peak_kib;
         size_t total, base, vn, vnsub;
-        size_t absolute_coverage; // distinct vertices in the algorithm's covered set
+        size_t absolute_coverage; // distinct data vertices in delivered full embeddings
         double hard_sat, cov_sat;
         CheckpointKind kind;
     };
     struct CheckpointRecorder {
         std::vector<Checkpoint> points;
         Checkpoint final_point{}; // actual finish, separate from padding to TimeL
+        EnumerationStop stop_reason = EnumerationStop::Completed;
     };
     // static void InitCheckpointRecorder(CheckpointRecorder &rec, int time_limit_ms, int interval_ms);
     // static void PushCheckpoint(CheckpointRecorder &rec, int t_ms, double sat, double cov_sat, double avg_rel_cov, size_t call_count, ui prune_count, size_t embedding_cnt);
     // static void DestroyCheckpointRecorder(CheckpointRecorder &rec);
-    static void BeginEnumeration(EnumClock::time_point start);
+    // static void BeginEnumeration(EnumClock::time_point start);
+    static void BeginEnumeration(EnumClock::time_point start, ui data_vertices);
+    // Independent of nodeId/KeyVertexSet: measuring output must not affect pruning.
+    static std::vector<uint64_t> output_coverage_bits;
+    static size_t output_coverage_count;
+    static void RecordCoveredVertex(ui v) {
+        uint64_t& word = output_coverage_bits[v >> 6];
+        const uint64_t mask = uint64_t{1} << (v & 63);
+        if (!(word & mask)) {
+            word |= mask;
+            ++output_coverage_count;
+        }
+    }
+    static void RecordEmbeddingCoverage(const ui* embedding, ui size) {
+        for (ui u = 0; u < size; ++u) RecordCoveredVertex(embedding[u]);
+    }
+
     static double EnumerationElapsedMs();
     static void MarkFirstEmbedding();
     static void InitCheckpointRecorder(CheckpointRecorder& rec, int limit_ms, int interval_ms);

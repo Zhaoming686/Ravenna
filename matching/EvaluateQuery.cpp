@@ -15,6 +15,9 @@
 #include <stdexcept>
 #include "MatchCover.h"
 
+std::vector<uint64_t> EvaluateQuery::output_coverage_bits;
+size_t EvaluateQuery::output_coverage_count = 0;
+
 namespace
 {
     std::vector<double> g_tau_values;
@@ -55,7 +58,8 @@ namespace
         std::cout << '\n';
     }
 
-    static size_t emitVNEmbeddings(ui** candidates, const ui* base_idx, const ui* base,const std::vector<std::vector<ui>>& buckets,std::vector<ui>& current, std::vector<ui>& active,size_t limit, bool print_embedding){
+    // static size_t emitVNEmbeddings(ui** candidates, const ui* base_idx, const ui* base,const std::vector<std::vector<ui>>& buckets,std::vector<ui>& current, std::vector<ui>& active,size_t limit, bool print_embedding){
+    static size_t emitVNEmbeddings(ui** candidates, const ui* base_idx, const ui* base,const std::vector<std::vector<ui>>& buckets,std::vector<ui>& current, std::vector<ui>& active,size_t limit, bool print_embedding, bool base_covered){
         active.clear();
         if (limit == 0) return 0;
 
@@ -72,6 +76,7 @@ namespace
                 const size_t pos = column + (base_idx[u] != 10000000); 
                 if (pos < buckets[u].size()) {
                     current[u] = candidates[u][buckets[u][pos]];
+                    if (base_covered) EvaluateQuery::RecordCoveredVertex(current[u]); 
                     active[n++] = u; // keep u in active if there are still candidates to consider
                 } else {
                     current[u] = base[u];
@@ -80,6 +85,8 @@ namespace
             active.resize(n); // resize active to only include vertices that still have candidates to consider
             if (active.empty()) break;
 
+            if (!base_covered)
+                EvaluateQuery::RecordEmbeddingCoverage(current.data(), current.size());
             printCurrentEmbedding(current, print_embedding);
             ++count;
         }
@@ -7850,8 +7857,8 @@ EvaluateQuery::MMDIV(const Graph *data_graph, const Graph *query_graph, ui *&nod
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
-    BeginEnumeration(start);
-
+    // BeginEnumeration(start);
+    BeginEnumeration(start, data_graph->getVerticesCount());
     enumResult s;
     // Generate bn.
 
@@ -7990,6 +7997,7 @@ EvaluateQuery::MMDIV(const Graph *data_graph, const Graph *query_graph, ui *&nod
 
             if (ens > TimeL)
             { // 1000 1 sec
+                ck.stop_reason = EnumerationStop::TimeLimit;
                 goto EXIT;
             }
             ui valid_idx = valid_candidate_idx[cur_depth][idx[cur_depth]]; // valid id
@@ -8201,6 +8209,7 @@ EvaluateQuery::MMDIV(const Graph *data_graph, const Graph *query_graph, ui *&nod
 
                 if (embedding_cnt >= output_limit_num)
                 {
+                    ck.stop_reason = EnumerationStop::OutputLimit;
                     goto EXIT;
                 }
             }
@@ -8439,6 +8448,7 @@ void EvaluateQuery::GreedyConstructEmbedding(const Graph *data_graph, const Grap
             if (nodeId[temp_sol[aa][0]] == 0)
             {
                 UpdateLabelVal(data_graph, temp_sol[aa][0], nodeId, label_flag, label_val, label_cover_cnt);
+                RecordCoveredVertex(temp_sol[aa][0]);
                 UNPM++;
             }
             else if (temp_sol[aa].size() == 1)
@@ -8454,6 +8464,7 @@ void EvaluateQuery::GreedyConstructEmbedding(const Graph *data_graph, const Grap
                     if (nodeId[temp_sol[aa][ja]] == 0)
                     {
                         UpdateLabelVal(data_graph, temp_sol[aa][ja], nodeId, label_flag, label_val, label_cover_cnt);
+                        RecordCoveredVertex(temp_sol[aa][ja]);
                         temp_sol[aa][0] = temp_sol[aa][ja];
                         temp_sol[aa].pop_back();
                         UNPM++;
@@ -9093,11 +9104,14 @@ void EvaluateQuery::UpdateContinueFlags(const Graph *query_graph, bool &continue
 //         return;
 
 // Reuse each algorithm's ORIGINAL start value; never restart or relocate its timer.
-void EvaluateQuery::BeginEnumeration(EnumClock::time_point start) {
+// void EvaluateQuery::BeginEnumeration(EnumClock::time_point start) {
+void EvaluateQuery::BeginEnumeration(EnumClock::time_point start, ui data_vertices) {
     g_enum_start = start;
     g_first_ms = -1;
     g_rss_before = readStatusKiB("\nVmRSS:");
     g_peak_ok = resetPeakRss();
+    output_coverage_bits.assign((static_cast<size_t>(data_vertices) + 63) / 64, 0);
+    output_coverage_count = 0;
 }
 
     // // fixed points: 0, interval, ..., <= TimeL
@@ -9155,16 +9169,19 @@ void EvaluateQuery::MarkFirstEmbedding() {
 void EvaluateQuery::InitCheckpointRecorder(CheckpointRecorder& rec, int limit_ms, int interval_ms) {
     rec.points.clear();
     rec.final_point = {};
+    rec.stop_reason = EnumerationStop::Completed;
     rec.points.reserve(static_cast<size_t>(std::max(0, limit_ms) / interval_ms) + 1);
 }
 
 EvaluateQuery::Checkpoint EvaluateQuery::ReadCheckpoint(double observed_ms, size_t total, const LabelID* labelsQuery, ui labelsQuerySize, const uint8_t* label_flag, const ui* label_cover_cnt, const ui* label_target, size_t base, size_t vn, size_t vnsub) {
     const long long peak = g_peak_ok ? readStatusKiB("\nVmHWM:") : -1;
     double sat, cov_sat, avg_rel_cov;
-    size_t absolute_coverage = 0;
-    // Reuse the label scan for sat; do not scan all data vertices or re-count embeddings.
+
+    // Coverage is updated at delivery; reading it here is O(1).
+    const size_t absolute_coverage = output_coverage_count;
+
     ComputeSatCovAndRelCov(sat, cov_sat, avg_rel_cov, labelsQuery, labelsQuerySize,
-                          label_flag, label_cover_cnt, label_target, &absolute_coverage);
+                          label_flag, label_cover_cnt, label_target);
     return {observed_ms, observed_ms, peak, total, base, vn, vnsub,
             absolute_coverage, sat, cov_sat, CheckpointKind::Sample};
 }
@@ -9179,6 +9196,10 @@ void EvaluateQuery::PrintCheckpoints(const CheckpointRecorder& rec, bool split) 
     const auto flags = std::cout.flags();
     const auto precision = std::cout.precision();
     std::cout << std::fixed << std::setprecision(6);
+    std::cout << "record_type\tsample_kind\tt_ms\tobserved_ms\twindow_ms"
+                 "\tthroughput_eps\tavg_throughput_eps\tpeak_rss_mib"
+                 "\tbase_cnt\tvn_cnt\tvnsub_cnt\ttotal_cnt"
+                 "\thard_sat\tcov_sat\tabsolute_coverage\n";
     const char* names[] = {"SAMPLE", "GAP_FILL", "TAIL_FILL", "FINAL"};
     double previous_ms = 0;
     size_t previous_total = 0;
@@ -9218,13 +9239,16 @@ void EvaluateQuery::PrintCheckpoints(const CheckpointRecorder& rec, bool split) 
     std::cout << "\trss_before_mib=";
     if (g_rss_before < 0) std::cout << "NA"; else std::cout << g_rss_before / 1024.0;
     std::cout << "\telapsed_s=" << final.observed_ms / 1000.0
-              << "\tpeak_reset=" << (g_peak_ok ? "ok" : "unavailable") << '\n';
+              << "\tpeak_reset=" << (g_peak_ok ? "ok" : "unavailable");
+    const char* reasons[] = {"completed", "time_limit", "output_limit"};
+    std::cout << "\tstop_reason=" << reasons[static_cast<int>(rec.stop_reason)] << '\n';
     std::cout.flags(flags);
     std::cout.precision(precision);
 }
 
 void EvaluateQuery::DestroyCheckpointRecorder(CheckpointRecorder& rec) {
     std::vector<Checkpoint>().swap(rec.points);
+    std::vector<uint64_t>().swap(output_coverage_bits);
 }
 
 // labelsQuery[0..labelsQuerySize)
@@ -9318,7 +9342,7 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    BeginEnumeration(start);
+    BeginEnumeration(start, data_graph->getVerticesCount());
 
     enumResult s;
     ui **bn;
@@ -9524,7 +9548,6 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
                 
                 const auto point = ReadCheckpoint(ens, embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
                  
-                
                 while (next_t <= TimeL && ens >= next_t)
                 {
                     // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
@@ -9538,6 +9561,7 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
 
             if (ens > TimeL)
             { // 1000 1 sec
+                ck.stop_reason = EnumerationStop::TimeLimit;
                 goto EXIT;
             }
 
@@ -9593,6 +9617,7 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
                 // nodeId[v]=1;
                 while (ao > 0)
                 {
+                    RecordCoveredVertex(embedding[vqo]);
                     Match_BA[ao] = true;
                     if (nodeId[embedding[vqo]] == 0)
                     {
@@ -9608,6 +9633,7 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
                     vqo = order_matrix[ao];
                 }
                 Match_BA[ao] = true;
+                RecordCoveredVertex(embedding[vqo]);
                 // nodeId[embedding[vqo]]=1;
                 if (nodeId[embedding[vqo]] == 0)
                 {
@@ -9898,6 +9924,7 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
 
                         if (ens > TimeL)
                         { // 1000 1 sec
+                            ck.stop_reason = EnumerationStop::TimeLimit;
                             goto EXIT;
                         }
                         if (visited_vertices[v])
@@ -9951,6 +9978,7 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
 
                             while (ao > 0)
                             {
+                                RecordCoveredVertex(embedding[vqo]);
                                 if (nodeId[embedding[vqo]] == 0)
                                 {
                                     UNPM++;
@@ -9969,6 +9997,7 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
                                 vqo = order_matrix[ao];
                             }
                             Match_BA[ao] = true;
+                            RecordCoveredVertex(embedding[vqo]);
                             // nodeId[embedding[vqo]]=1;
                             if (nodeId[embedding[vqo]] == 0)
                             {
@@ -9979,6 +10008,7 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
 
                             if (embedding_cnt >= output_limit_num)
                             {
+                                ck.stop_reason = EnumerationStop::OutputLimit;
                                 goto EXIT;
                             }
                         }
@@ -10173,7 +10203,8 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
 {
 
     auto start = std::chrono::high_resolution_clock::now();
-    BeginEnumeration(start);
+    // BeginEnumeration(start);
+    BeginEnumeration(start, data_graph->getVerticesCount());
     std::vector<VertexID> priority_neighbors;  // To store neighbors that are is_used[nbrs[i]]
     std::vector<VertexID> secondary_neighbors; // To store neighbors that are not is_used[nbrs[i]]
     enumResult s;
@@ -10290,6 +10321,7 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
 
             if (ens > TimeL)
             { // 1000 1 sec
+                ck.stop_reason = EnumerationStop::TimeLimit;
                 goto EXIT;
             }
             if (visited_vertices[v])
@@ -10341,6 +10373,7 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                 UpdateLabelVal(data_graph, v, nodeId, label_flag, label_val, label_cover_cnt);
                 while (ao > 0)
                 {
+                    RecordCoveredVertex(embedding[vqo]);
                     if (nodeId[embedding[vqo]] == 0)
                     {
                         UNPM++;
@@ -10355,6 +10388,7 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                     ao--;
                     vqo = order[ao];
                 }
+                RecordCoveredVertex(embedding[vqo]);
                 // nodeId[embedding[vqo]]=1;
                 UpdateLabelVal(data_graph, embedding[vqo], nodeId, label_flag, label_val, label_cover_cnt);
 
@@ -10363,6 +10397,7 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                 vec_failing_set[cur_depth - 1] |= vec_failing_set[cur_depth];
                 if (embedding_cnt >= output_limit_num)
                 {
+                    ck.stop_reason = EnumerationStop::OutputLimit;
                     goto EXIT;
                 }
             }
@@ -10583,6 +10618,7 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
 
                     if (ens > TimeL)
                     { // 1000 1 sec
+                        ck.stop_reason = EnumerationStop::TimeLimit;
                         goto EXIT;
                     }
                     if (nodeId[v] == 0 && is_used[u])
@@ -10637,6 +10673,7 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
 
                         while (ao > 0)
                         {
+                            RecordCoveredVertex(embedding[vqo]);
                             if (nodeId[embedding[vqo]] == 0)
                             {
                                 UNPM++;
@@ -10661,6 +10698,7 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                             vqo = order_matrix[ao];
                         }
                         Match_BA[vqo] = true;
+                        RecordCoveredVertex(embedding[vqo]);
                         // nodeId[embedding[vqo]]=1;
                         UpdateLabelVal(data_graph, embedding[vqo], nodeId, label_flag, label_val, label_cover_cnt);
 
@@ -10669,6 +10707,7 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                         vec_failing_set[cur_depth - 1] |= vec_failing_set[cur_depth];
                         if (embedding_cnt >= output_limit_num)
                         {
+                            ck.stop_reason = EnumerationStop::OutputLimit;
                             goto EXIT;
                         }
                     }
@@ -10813,8 +10852,8 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
-    BeginEnumeration(start);
-
+    // BeginEnumeration(start);
+    BeginEnumeration(start, data_graph->getVerticesCount());
     enumResult s;
     // Generate bn.
 
@@ -10957,6 +10996,7 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
 
             if (ens > TimeL)
             { // 1000 1 sec
+                ck.stop_reason = EnumerationStop::TimeLimit;
                 goto EXIT;
             }
             if (visited_vertices[v])
@@ -10998,6 +11038,7 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
 
                 if (embedding_cnt >= output_limit_num)
                 {
+                    ck.stop_reason = EnumerationStop::OutputLimit;
                     goto EXIT;
                 }
             }
@@ -11082,6 +11123,7 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
 
             if (ens > TimeL)
             { // 1000 1 sec
+                ck.stop_reason = EnumerationStop::TimeLimit;
                 goto EXIT;
             }
             ui valid_idx = valid_candidate_idx[cur_depth][idx[cur_depth]]; // valid id
@@ -11379,6 +11421,7 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
 
                 if (embedding_cnt >= output_limit_num)
                 {
+                    ck.stop_reason = EnumerationStop::OutputLimit;
                     goto EXIT;
                 }
             }
@@ -12266,8 +12309,8 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
-    BeginEnumeration(start);
-
+    // BeginEnumeration(start);
+    BeginEnumeration(start, data_graph->getVerticesCount());
     enumResult s;
     // Generate bn.
 
@@ -12293,9 +12336,8 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
     vector<ui> VNTemp;
 
     int RQ[query_graph->getVerticesCount()];
-    for (int i = 0; i < query_graph->getVerticesCount(); i++)
-    {
-        RQ[order[i]] = i; // depth RQ[u]=
+    for (int i = 0; i < query_graph -> getVerticesCount(); i++){
+        RQ[order[i]] = i; //depth RQ[u]
     }
     bool *embd_vertices = new bool[data_graph->getVerticesCount()];
     std::fill(embd_vertices, embd_vertices + data_graph->getVerticesCount(), false);
@@ -12476,14 +12518,12 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
             // checkpointing, make sure we record at every 100ms
             if (next_t <= TimeL && ens >= next_t)
             {
-                ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
-                
+                // ComputeSatCovAndRelCov(last_sat, last_cov_sat, last_avg_rel_cov, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target);
                 const auto point = ReadCheckpoint(ens, embedding_cnt, labelsQuery, labelsQuerySize, label_flag, label_cover_cnt, label_target, embedding_count1, embedding_count2, embedding_count3);
                 
                 while (next_t <= TimeL && ens >= next_t)
                 {
                     // PushCheckpoint(ck, next_t, last_sat, last_cov_sat, last_avg_rel_cov, call_count, pruneCount, embedding_cnt);
-                    
                     const auto kind = next_t + interval_ms <= TimeL && ens >= next_t + interval_ms ? CheckpointKind::GapFill : CheckpointKind::Sample;
                     PushCheckpoint(ck, next_t, point, kind);
                      
@@ -12493,6 +12533,7 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
 
             if (ens > TimeL)
             { // 1000 1 sec
+                ck.stop_reason = EnumerationStop::TimeLimit;
                 goto EXIT;
             }
             ui valid_idx = valid_candidate_idx[cur_depth][idx[cur_depth]]; // valid id
@@ -12777,6 +12818,7 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
 
                 if (embedding_cnt >= output_limit_num)
                 {
+                    ck.stop_reason = EnumerationStop::OutputLimit;
                     goto EXIT;
                 }
 
@@ -13020,8 +13062,8 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
-    BeginEnumeration(start);
-
+    // BeginEnumeration(start);
+    BeginEnumeration(start, data_graph->getVerticesCount());
     enumResult s;
     // Generate bn.
 
@@ -13194,6 +13236,7 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
 
             if (ens > TimeL)
             { // 1000 1 sec
+                ck.stop_reason = EnumerationStop::TimeLimit;
                 goto EXIT;
             }
             ui valid_idx = valid_candidate_idx[cur_depth][idx[cur_depth]]; // valid id
@@ -13451,6 +13494,7 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
 
                 if (embedding_cnt >= output_limit_num)
                 {
+                    ck.stop_reason = EnumerationStop::OutputLimit;
                     goto EXIT;
                 }
                 idx[cur_depth] = idx_count[cur_depth]; // jump to end
@@ -13651,8 +13695,8 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
-    BeginEnumeration(start);
-
+    // BeginEnumeration(start);
+    BeginEnumeration(start, data_graph->getVerticesCount());
     enumResult s;
     // Generate bn.
 
@@ -13875,6 +13919,7 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
 
             if (ens > TimeL)
             { // 1000 1 sec
+                ck.stop_reason = EnumerationStop::TimeLimit;
                 goto EXIT;
             }
             ui valid_idx = valid_candidate_idx[cur_depth][idx[cur_depth]]; // valid id
@@ -14159,6 +14204,7 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
 
                 if (embedding_cnt >= output_limit_num)
                 {
+                    ck.stop_reason = EnumerationStop::OutputLimit;
                     goto EXIT;
                 }
                 idx[cur_depth] = idx_count[cur_depth]; // jump to end
@@ -14661,12 +14707,14 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
     // Reuse the repair indices as the VN output representation. This avoids
     // a second copy of their vertex IDs and retains the original column order.
     if (output_original && emitted < remaining_output_limit) {
+        RecordEmbeddingCoverage(current.data(), qsiz);
         printCurrentEmbedding(current, print_embedding);
         ++emitted;
     }
     const size_t base_count = emitted;
-    const size_t vn_count = emitVNEmbeddings(candidates, base_idx_embedding, base_embedding, repair_idx_buckets, current, active, remaining_output_limit - emitted, print_embedding);emitted += vn_count;
-
+    // const size_t vn_count = emitVNEmbeddings(candidates, base_idx_embedding, base_embedding, repair_idx_buckets, current, active, remaining_output_limit - emitted, print_embedding);emitted += vn_count;
+    const size_t vn_count = emitVNEmbeddings(candidates, base_idx_embedding, base_embedding, repair_idx_buckets, current, active, remaining_output_limit - emitted, print_embedding, base_count != 0);emitted += vn_count;
+ 
     // Stream each successful VSub repair directly; no padded local-bucket table.
     if (VSub != nullptr)
     {
@@ -14748,9 +14796,14 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
                 }
 
                 if (emitted < remaining_output_limit) {
-                    for (const auto& p : replacements) current[p.first] = p.second;
+                    // for (const auto& p : replacements) current[p.first] = p.second;
+                    for (const auto& p : replacements) {
+                        current[p.first] = p.second;
+                        if (base_count != 0) RecordCoveredVertex(p.second);
+                    }
+                    if (base_count == 0) RecordEmbeddingCoverage(current.data(), qsiz);
                     printCurrentEmbedding(current, print_embedding);
-                   ++emitted;
+                    ++emitted;
                     for (const auto& p : replacements) current[p.first] = base_embedding[p.first];
                 }
 
