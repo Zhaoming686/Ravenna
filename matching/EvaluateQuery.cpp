@@ -14708,7 +14708,7 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
         {
             VertexID u = order[dep];
 
-            for (ui i = 0; i < VSub[u].size(); ++i)
+            for (ui i = 0; i < VSub[u].size() && emitted < remaining_output_limit; ++i)
             {
                 ui cand_idx = VSub[u][i];
 
