@@ -207,22 +207,8 @@ public:
     // static void InitCheckpointRecorder(CheckpointRecorder &rec, int time_limit_ms, int interval_ms);
     // static void PushCheckpoint(CheckpointRecorder &rec, int t_ms, double sat, double cov_sat, double avg_rel_cov, size_t call_count, ui prune_count, size_t embedding_cnt);
     // static void DestroyCheckpointRecorder(CheckpointRecorder &rec);
-    // static void BeginEnumeration(EnumClock::time_point start);
-    static void BeginEnumeration(EnumClock::time_point start, ui data_vertices);
-    // Independent of nodeId/KeyVertexSet: measuring output must not affect pruning.
-    static std::vector<uint64_t> output_coverage_bits;
-    static size_t output_coverage_count;
-    static void RecordCoveredVertex(ui v) {
-        uint64_t& word = output_coverage_bits[v >> 6];
-        const uint64_t mask = uint64_t{1} << (v & 63);
-        if (!(word & mask)) {
-            word |= mask;
-            ++output_coverage_count;
-        }
-    }
-    static void RecordEmbeddingCoverage(const ui* embedding, ui size) {
-        for (ui u = 0; u < size; ++u) RecordCoveredVertex(embedding[u]);
-    }
+    
+    static void BeginEnumeration(EnumClock::time_point start);
 
     static double EnumerationElapsedMs();
     static void MarkFirstEmbedding();

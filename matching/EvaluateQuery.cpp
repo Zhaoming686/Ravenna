@@ -15,9 +15,6 @@
 #include <stdexcept>
 #include "MatchCover.h"
 
-std::vector<uint64_t> EvaluateQuery::output_coverage_bits;
-size_t EvaluateQuery::output_coverage_count = 0;
-
 namespace
 {
     std::vector<double> g_tau_values;
@@ -59,7 +56,8 @@ namespace
     }
 
     // static size_t emitVNEmbeddings(ui** candidates, const ui* base_idx, const ui* base,const std::vector<std::vector<ui>>& buckets,std::vector<ui>& current, std::vector<ui>& active,size_t limit, bool print_embedding){
-    static size_t emitVNEmbeddings(ui** candidates, const ui* base_idx, const ui* base,const std::vector<std::vector<ui>>& buckets,std::vector<ui>& current, std::vector<ui>& active,size_t limit, bool print_embedding, bool base_covered){
+    // static size_t emitVNEmbeddings(ui** candidates, const ui* base_idx, const ui* base,const std::vector<std::vector<ui>>& buckets,std::vector<ui>& current, std::vector<ui>& active,size_t limit, bool print_embedding, bool base_covered){
+    static size_t emitVNEmbeddings(ui** candidates, const ui* base_idx, const ui* base,const std::vector<std::vector<ui>>& buckets,std::vector<ui>& current, std::vector<ui>& active,size_t limit, bool print_embedding){
         active.clear();
         if (limit == 0) return 0;
 
@@ -76,7 +74,6 @@ namespace
                 const size_t pos = column + (base_idx[u] != 10000000); 
                 if (pos < buckets[u].size()) {
                     current[u] = candidates[u][buckets[u][pos]];
-                    if (base_covered) EvaluateQuery::RecordCoveredVertex(current[u]); 
                     active[n++] = u; // keep u in active if there are still candidates to consider
                 } else {
                     current[u] = base[u];
@@ -85,8 +82,6 @@ namespace
             active.resize(n); // resize active to only include vertices that still have candidates to consider
             if (active.empty()) break;
 
-            if (!base_covered)
-                EvaluateQuery::RecordEmbeddingCoverage(current.data(), current.size());
             printCurrentEmbedding(current, print_embedding);
             ++count;
         }
@@ -7857,8 +7852,8 @@ EvaluateQuery::MMDIV(const Graph *data_graph, const Graph *query_graph, ui *&nod
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
-    // BeginEnumeration(start);
-    BeginEnumeration(start, data_graph->getVerticesCount());
+    BeginEnumeration(start);
+    // BeginEnumeration(start, data_graph->getVerticesCount());
     enumResult s;
     // Generate bn.
 
@@ -8448,7 +8443,7 @@ void EvaluateQuery::GreedyConstructEmbedding(const Graph *data_graph, const Grap
             if (nodeId[temp_sol[aa][0]] == 0)
             {
                 UpdateLabelVal(data_graph, temp_sol[aa][0], nodeId, label_flag, label_val, label_cover_cnt);
-                RecordCoveredVertex(temp_sol[aa][0]);
+                // RecordCoveredVertex(temp_sol[aa][0]);
                 UNPM++;
             }
             else if (temp_sol[aa].size() == 1)
@@ -8464,7 +8459,7 @@ void EvaluateQuery::GreedyConstructEmbedding(const Graph *data_graph, const Grap
                     if (nodeId[temp_sol[aa][ja]] == 0)
                     {
                         UpdateLabelVal(data_graph, temp_sol[aa][ja], nodeId, label_flag, label_val, label_cover_cnt);
-                        RecordCoveredVertex(temp_sol[aa][ja]);
+                        // RecordCoveredVertex(temp_sol[aa][ja]);
                         temp_sol[aa][0] = temp_sol[aa][ja];
                         temp_sol[aa].pop_back();
                         UNPM++;
@@ -9104,14 +9099,11 @@ void EvaluateQuery::UpdateContinueFlags(const Graph *query_graph, bool &continue
 //         return;
 
 // Reuse each algorithm's ORIGINAL start value; never restart or relocate its timer.
-// void EvaluateQuery::BeginEnumeration(EnumClock::time_point start) {
-void EvaluateQuery::BeginEnumeration(EnumClock::time_point start, ui data_vertices) {
+void EvaluateQuery::BeginEnumeration(EnumClock::time_point start) {
     g_enum_start = start;
     g_first_ms = -1;
     g_rss_before = readStatusKiB("\nVmRSS:");
     g_peak_ok = resetPeakRss();
-    output_coverage_bits.assign((static_cast<size_t>(data_vertices) + 63) / 64, 0);
-    output_coverage_count = 0;
 }
 
     // // fixed points: 0, interval, ..., <= TimeL
@@ -9177,11 +9169,11 @@ EvaluateQuery::Checkpoint EvaluateQuery::ReadCheckpoint(double observed_ms, size
     const long long peak = g_peak_ok ? readStatusKiB("\nVmHWM:") : -1;
     double sat, cov_sat, avg_rel_cov;
 
-    // Coverage is updated at delivery; reading it here is O(1).
-    const size_t absolute_coverage = output_coverage_count;
+    // Reuse the existing label scan; each data vertex has exactly one label.
+    size_t absolute_coverage = 0;
 
     ComputeSatCovAndRelCov(sat, cov_sat, avg_rel_cov, labelsQuery, labelsQuerySize,
-                          label_flag, label_cover_cnt, label_target);
+                          label_flag, label_cover_cnt, label_target, &absolute_coverage);
     return {observed_ms, observed_ms, peak, total, base, vn, vnsub,
             absolute_coverage, sat, cov_sat, CheckpointKind::Sample};
 }
@@ -9248,7 +9240,7 @@ void EvaluateQuery::PrintCheckpoints(const CheckpointRecorder& rec, bool split) 
 
 void EvaluateQuery::DestroyCheckpointRecorder(CheckpointRecorder& rec) {
     std::vector<Checkpoint>().swap(rec.points);
-    std::vector<uint64_t>().swap(output_coverage_bits);
+    // std::vector<uint64_t>().swap(output_coverage_bits);
 }
 
 // labelsQuery[0..labelsQuerySize)
@@ -9342,7 +9334,7 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    BeginEnumeration(start, data_graph->getVerticesCount());
+    BeginEnumeration(start);
 
     enumResult s;
     ui **bn;
@@ -9617,7 +9609,6 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
                 // nodeId[v]=1;
                 while (ao > 0)
                 {
-                    RecordCoveredVertex(embedding[vqo]);
                     Match_BA[ao] = true;
                     if (nodeId[embedding[vqo]] == 0)
                     {
@@ -9633,7 +9624,6 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
                     vqo = order_matrix[ao];
                 }
                 Match_BA[ao] = true;
-                RecordCoveredVertex(embedding[vqo]);
                 // nodeId[embedding[vqo]]=1;
                 if (nodeId[embedding[vqo]] == 0)
                 {
@@ -9978,7 +9968,6 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
 
                             while (ao > 0)
                             {
-                                RecordCoveredVertex(embedding[vqo]);
                                 if (nodeId[embedding[vqo]] == 0)
                                 {
                                     UNPM++;
@@ -9997,7 +9986,6 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
                                 vqo = order_matrix[ao];
                             }
                             Match_BA[ao] = true;
-                            RecordCoveredVertex(embedding[vqo]);
                             // nodeId[embedding[vqo]]=1;
                             if (nodeId[embedding[vqo]] == 0)
                             {
@@ -10203,8 +10191,7 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
 {
 
     auto start = std::chrono::high_resolution_clock::now();
-    // BeginEnumeration(start);
-    BeginEnumeration(start, data_graph->getVerticesCount());
+    BeginEnumeration(start);
     std::vector<VertexID> priority_neighbors;  // To store neighbors that are is_used[nbrs[i]]
     std::vector<VertexID> secondary_neighbors; // To store neighbors that are not is_used[nbrs[i]]
     enumResult s;
@@ -10373,7 +10360,6 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                 UpdateLabelVal(data_graph, v, nodeId, label_flag, label_val, label_cover_cnt);
                 while (ao > 0)
                 {
-                    RecordCoveredVertex(embedding[vqo]);
                     if (nodeId[embedding[vqo]] == 0)
                     {
                         UNPM++;
@@ -10388,7 +10374,6 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                     ao--;
                     vqo = order[ao];
                 }
-                RecordCoveredVertex(embedding[vqo]);
                 // nodeId[embedding[vqo]]=1;
                 UpdateLabelVal(data_graph, embedding[vqo], nodeId, label_flag, label_val, label_cover_cnt);
 
@@ -10673,7 +10658,6 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
 
                         while (ao > 0)
                         {
-                            RecordCoveredVertex(embedding[vqo]);
                             if (nodeId[embedding[vqo]] == 0)
                             {
                                 UNPM++;
@@ -10698,7 +10682,6 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                             vqo = order_matrix[ao];
                         }
                         Match_BA[vqo] = true;
-                        RecordCoveredVertex(embedding[vqo]);
                         // nodeId[embedding[vqo]]=1;
                         UpdateLabelVal(data_graph, embedding[vqo], nodeId, label_flag, label_val, label_cover_cnt);
 
@@ -10852,8 +10835,8 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
-    // BeginEnumeration(start);
-    BeginEnumeration(start, data_graph->getVerticesCount());
+    BeginEnumeration(start);
+    
     enumResult s;
     // Generate bn.
 
@@ -12309,8 +12292,8 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
-    // BeginEnumeration(start);
-    BeginEnumeration(start, data_graph->getVerticesCount());
+    BeginEnumeration(start);
+    
     enumResult s;
     // Generate bn.
 
@@ -13062,8 +13045,8 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
-    // BeginEnumeration(start);
-    BeginEnumeration(start, data_graph->getVerticesCount());
+    BeginEnumeration(start);
+    
     enumResult s;
     // Generate bn.
 
@@ -13695,8 +13678,7 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
     int tempPos[qsiz];
 
     auto start = std::chrono::high_resolution_clock::now();
-    // BeginEnumeration(start);
-    BeginEnumeration(start, data_graph->getVerticesCount());
+    BeginEnumeration(start);
     enumResult s;
     // Generate bn.
 
@@ -14599,6 +14581,7 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
     size_t repair_success_cnt = 0;
 
     embedding_count0++;
+    if (remaining_output_limit == 0) return 0;
     const ui INVALID_IDX = 10000000;
     const ui qsiz = query_graph->getVerticesCount();
 
@@ -14677,7 +14660,8 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
     // 2. VN bucket: equivalent exchange.
     //    VN[u] stores candidate indices, not data vertex ids.
     // ------------------------------------------------------------
-    for (int dep = 0; dep <= max_dep; ++dep)
+    const size_t vn_limit = remaining_output_limit - (output_original ? 1 : 0);
+    for (int dep = 0; dep <= max_dep && vn_limit != 0; ++dep)
     {
         VertexID u = order[dep];
 
@@ -14699,26 +14683,28 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
 
             repair_idx_buckets[u].push_back(cand_idx);
 
-            // Once discovered, immediately mark it.
+            // This candidate belongs to a VN column that will actually be emitted.
             UpdateLabelVal(data_graph, v, nodeId, label_flag, label_val, label_cover_cnt);
+            const size_t base_slot = base_idx_embedding[u] != INVALID_IDX;
+            if (repair_idx_buckets[u].size() - base_slot == vn_limit) break;
         }
     }
 
     // Reuse the repair indices as the VN output representation. This avoids
     // a second copy of their vertex IDs and retains the original column order.
     if (output_original && emitted < remaining_output_limit) {
-        RecordEmbeddingCoverage(current.data(), qsiz);
         printCurrentEmbedding(current, print_embedding);
         ++emitted;
     }
     const size_t base_count = emitted;
     // const size_t vn_count = emitVNEmbeddings(candidates, base_idx_embedding, base_embedding, repair_idx_buckets, current, active, remaining_output_limit - emitted, print_embedding);emitted += vn_count;
-    const size_t vn_count = emitVNEmbeddings(candidates, base_idx_embedding, base_embedding, repair_idx_buckets, current, active, remaining_output_limit - emitted, print_embedding, base_count != 0);emitted += vn_count;
- 
+    // const size_t vn_count = emitVNEmbeddings(candidates, base_idx_embedding, base_embedding, repair_idx_buckets, current, active, remaining_output_limit - emitted, print_embedding, base_count != 0);emitted += vn_count;
+    const size_t vn_count = emitVNEmbeddings(candidates, base_idx_embedding, base_embedding, repair_idx_buckets, current, active, remaining_output_limit - emitted, print_embedding);emitted += vn_count;
+  
     // Stream each successful VSub repair directly; no padded local-bucket table.
     if (VSub != nullptr)
     {
-        for (int dep = max_dep; dep >= 0; --dep)
+        for (int dep = max_dep; dep >= 0 && emitted < remaining_output_limit; --dep)
         {
             VertexID u = order[dep];
 
@@ -14799,9 +14785,7 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
                     // for (const auto& p : replacements) current[p.first] = p.second;
                     for (const auto& p : replacements) {
                         current[p.first] = p.second;
-                        if (base_count != 0) RecordCoveredVertex(p.second);
                     }
-                    if (base_count == 0) RecordEmbeddingCoverage(current.data(), qsiz);
                     printCurrentEmbedding(current, print_embedding);
                     ++emitted;
                     for (const auto& p : replacements) current[p.first] = base_embedding[p.first];
@@ -14812,12 +14796,16 @@ size_t EvaluateQuery::buildBucketsAndMarksub(const Graph *data_graph, const Grap
         }
     }
 
+    // scan the full base embedding
+    if (emitted != 0) {
+        for (ui u = 0; u < qsiz; ++u)
+            UpdateLabelVal(data_graph, base_embedding[u], nodeId, label_flag, label_val, label_cover_cnt);
+    }
+
     // Accumulate actual delivered categories once per batch.
     embedding_count1 += base_count;
     embedding_count2 += vn_count;
     embedding_count3 += emitted - base_count - vn_count;
 
-    // Even after the output limit is reached, coverage updates above match the
-    // original helper. Only delivery is capped, preserving the existing behavior.
     return emitted;
 }

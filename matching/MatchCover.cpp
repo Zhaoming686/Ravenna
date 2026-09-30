@@ -210,7 +210,7 @@ void MatCo::InitialMatching()
     timeout_ = false;
     start_time_ = std::chrono::high_resolution_clock::now();
     // EvaluateQuery::BeginEnumeration(start_time_);
-    EvaluateQuery::BeginEnumeration(start_time_, data_->getVerticesCount());
+    EvaluateQuery::BeginEnumeration(start_time_);
     // NEW for diversity
     qsiz = query_->getVerticesCount();
     label_flag = nullptr;
@@ -419,7 +419,6 @@ void MatCo::FindMatCo(uint depth, std::vector<uint> m)
             embedding_cnt_++;
             if (embedding_cnt_ == 1) EvaluateQuery::MarkFirstEmbedding();
             for(auto j: m) {
-                EvaluateQuery::RecordCoveredVertex(j);
                 if(KeyVertexSet[j]) continue;
                 else{
                     num_keyvertex_++;
@@ -519,7 +518,6 @@ void MatCo::CountRes(std::vector<uint> m){
     bool flag_all_cv = true ;
     for(uint i = 0 ; i<query_->getVerticesCount();i++){
         uint u = match_order[i];
-        EvaluateQuery::RecordCoveredVertex(m[u]);
         if(KeyVertexSet[m[u]]==false){
             // KeyVertexSet[m[u]] = true;
             EvaluateQuery::UpdateLabelVal(data_, m[u], KeyVertexSet, label_flag, label_val, label_cover_cnt);
@@ -543,7 +541,6 @@ void MatCo::CountRes(std::vector<uint> m){
 
                 const uint u = match_order[i];
                 m[u] = cand;
-                EvaluateQuery::RecordCoveredVertex(cand);
 
                 num_initial_results_++;
                 embedding_cnt_++;
