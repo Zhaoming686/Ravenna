@@ -1441,6 +1441,7 @@ EvaluateQuery::LFTJ(const Graph *data_graph, const Graph *query_graph, ui *&node
     int heapcount = 0;
 #endif
     auto start = std::chrono::high_resolution_clock::now();
+    BeginEnumeration(start);
     enumResult s;
     ui **bn;
     ui *bn_count;
@@ -1481,6 +1482,31 @@ EvaluateQuery::LFTJ(const Graph *data_graph, const Graph *query_graph, ui *&node
 #endif
     TimeL = TimeL * 1000;
     double ens = 0;
+
+    uint8_t* label_flag = nullptr;
+    InitQueryLabelFlag(query_graph, label_flag);
+
+    std::unordered_map<LabelID, std::vector<ui>> labelToCandidates;
+    groupCandidatesByLabel(query_graph, max_depth, candidates,
+                        candidates_count, labelToCandidates);
+    deduplicateLabelMap(labelToCandidates);
+
+    int* label_val = nullptr;
+    ui* label_target = nullptr;
+    InitLabelValByCandidates(query_graph, labelToCandidates,
+                            label_val, label_target);
+
+    LabelID* labelsQuery = nullptr;
+    ui labelsQuerySize = 0;
+    BuildLabelsQuery(query_graph, max_depth, labelsQuery, labelsQuerySize);
+
+    ui* label_cover_cnt = new ui[query_graph->getLabelsCount()]();
+
+    const int interval_ms = 100;
+    CheckpointRecorder ck;
+    InitCheckpointRecorder(ck, TimeL, interval_ms);
+    int next_t = 0;
+
     while (true)
     {
         while (idx[cur_depth] < idx_count[cur_depth])
@@ -1509,10 +1535,29 @@ EvaluateQuery::LFTJ(const Graph *data_graph, const Graph *query_graph, ui *&node
             VertexID v = candidates[u][valid_idx];
             auto end = std::chrono::high_resolution_clock::now();
             ens = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-            if (ens > TimeL)
-            { // 1000 1 sec
+
+            if (next_t <= TimeL && ens >= next_t) {
+                const auto point = ReadCheckpoint(
+                    ens, embedding_cnt, labelsQuery, labelsQuerySize,
+                    label_flag, label_cover_cnt, label_target);
+
+                while (next_t <= TimeL && ens >= next_t) {
+                    const auto kind =
+                        next_t + interval_ms <= TimeL &&
+                        ens >= next_t + interval_ms
+                            ? CheckpointKind::GapFill
+                            : CheckpointKind::Sample;
+
+                    PushCheckpoint(ck, next_t, point, kind);
+                    next_t += interval_ms;
+                }
+            }
+
+            if (ens > TimeL) {
+                ck.stop_reason = EnumerationStop::TimeLimit;
                 goto EXIT;
             }
+
             if (visited_vertices[v])
             {
                 idx[cur_depth] += 1;
@@ -1530,33 +1575,27 @@ EvaluateQuery::LFTJ(const Graph *data_graph, const Graph *query_graph, ui *&node
             reverse_embedding[v] = u;
             if (cur_depth == max_depth - 1)
             {
-                UNPM = 0;
-                if (nodeId[embedding[order[cur_depth]]] == 0)
-                {
-                    UNPM++;
-                    nodeId[embedding[order[cur_depth]]] = 1;
-                }
                 embedding_cnt += 1;
-                visited_vertices[v] = false;
-                int ao = cur_depth; //-1;
-                ui vqo = order[ao];
-#ifdef TOPKGREEDY
-                tempPos[ao] = embedding[order[cur_depth]];
-#endif
-                while (ao >= 0 && Match_BA[ao] == false)
-                {
-                    if (nodeId[embedding[vqo]] == 0)
-                    {
-                        UNPM++;
-                        nodeId[embedding[vqo]] = 1;
-                    }
-#ifdef TOPKGREEDY
-                    tempPos[ao] = embedding[vqo];
-#endif
-                    // Match_BA[ao] = true;
-                    ao--;
-                    vqo = order[ao];
+                if (embedding_cnt == 1) {
+                    MarkFirstEmbedding();
                 }
+
+                UNPM = 0;
+                for (ui d = 0; d < max_depth; ++d) {
+                    const VertexID matched_v = embedding[order[d]];
+
+                    if (nodeId[matched_v] == 0) {
+                        ++UNPM;
+                        UpdateLabelVal(data_graph, matched_v, nodeId,
+                                    label_flag, label_val, label_cover_cnt);
+                    }
+
+                #ifdef TOPKGREEDY
+                    tempPos[d] = matched_v;
+                #endif
+                }
+
+                visited_vertices[v] = false;
 #ifdef TOPKGREEDY
                 if (UNPM > pq.top().first)
                 {
@@ -1584,8 +1623,8 @@ EvaluateQuery::LFTJ(const Graph *data_graph, const Graph *query_graph, ui *&node
                 reverse_embedding.erase(embedding[u]);
                 vec_failing_set[cur_depth].set();
                 vec_failing_set[cur_depth - 1] |= vec_failing_set[cur_depth];
-                if (embedding_cnt >= output_limit_num)
-                {
+                if (embedding_cnt >= output_limit_num) {
+                    ck.stop_reason = EnumerationStop::OutputLimit;
                     goto EXIT;
                 }
             }
@@ -1636,6 +1675,21 @@ EvaluateQuery::LFTJ(const Graph *data_graph, const Graph *query_graph, ui *&node
     }
 
 EXIT:
+    ck.final_point = ReadCheckpoint(
+        EnumerationElapsedMs(), embedding_cnt,
+        labelsQuery, labelsQuerySize,
+        label_flag, label_cover_cnt, label_target);
+
+    while (next_t <= TimeL) {
+        const auto kind =
+            next_t <= ck.final_point.observed_ms
+                ? CheckpointKind::GapFill
+                : CheckpointKind::TailFill;
+
+        PushCheckpoint(ck, next_t, ck.final_point, kind);
+        next_t += interval_ms;
+    }
+
     releaseBuffer(max_depth, idx, idx_count, embedding, idx_embedding, temp_buffer, valid_candidate_idx,
                   visited_vertices,
                   bn, bn_count);
@@ -1734,6 +1788,17 @@ EXIT:
     cout << endl;
     s.Can_embed = countSMU;
     // s.topk=greedysum;
+    PrintCheckpoints(ck, false);
+
+    computeDiversity(query_graph, max_depth, candidates, candidates_count,
+                    nodeId, labelToCandidates, label_target);
+
+    DestroyCheckpointRecorder(ck);
+    DestroyLabelsQuery(labelsQuery);
+    delete[] label_flag;
+    delete[] label_val;
+    delete[] label_target;
+    delete[] label_cover_cnt;
     return s;
 }
 

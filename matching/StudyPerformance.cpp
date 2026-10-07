@@ -478,7 +478,7 @@ int main(int argc, char **argv)
 
             s = EvaluateQuery::LFTJ(data_graph, query_graph, nodeID, edge_matrix, candidates, candidates_count,
                                     matching_order, output_limit, call_count, valid_vtx_count, TimeL1, FairT,
-                                    ordered_constraints);
+                                    ordered_constraints);                       
         }
         else if (input_engine_type == "DSQLDIV")
         {

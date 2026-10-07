@@ -50,7 +50,9 @@
       "description": "Choose build preset",
       "options": [
         "local-test",
-        "sbatch-release"
+        "sbatch-release",
+        "haveGlobal",
+        "noGlobal"
       ],
       "default": "local-test"
     }

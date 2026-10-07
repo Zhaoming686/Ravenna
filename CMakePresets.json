@@ -30,6 +30,15 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+
+    {
+      "name": "haveGlobal",
+      "inherits": "sbatch-release"
+    },
+    {
+      "name": "noGlobal",
+      "inherits": "sbatch-release"
     }
   ],
 
@@ -42,6 +51,16 @@
     {
       "name": "sbatch-release",
       "configurePreset": "sbatch-release",
+      "jobs": 4
+    },
+    {
+      "name": "haveGlobal",
+      "configurePreset": "haveGlobal",
+      "jobs": 4
+    },
+    {
+      "name": "noGlobal",
+      "configurePreset": "noGlobal",
       "jobs": 4
     }
   ]
