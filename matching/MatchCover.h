@@ -48,7 +48,7 @@ private:
     // checkpoint for time
     // every 100ms
     // const int interval_ms = 1000;
-    const int interval_ms = 100;
+    const int interval_ms = 5000;
 
     struct EvalState;     // forward declaration
     EvalState* eval_ = nullptr;
