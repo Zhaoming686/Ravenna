@@ -14,6 +14,10 @@
 #include "EvaluateQuery.h"
 #include <sstream>
 #include <stdexcept>
+#include <cmath>
+#include <iomanip>
+#include <limits>
+#include <map>
 
 #include "utility/analyze_symmetry/analyze_symmetry.h"
 
@@ -98,9 +102,144 @@ struct matching_algo_outputs
     size_t call_count;
 };
 
+static bool writeFilteredLabelStats(const Graph *data_graph, const Graph *query_graph, ui **candidates, const ui *candidates_count, bool filter_ok, const std::string &data_file, const std::string &query_file, const std::string &filter_type, const std::string &tsv_file)
+{
+    const std::string header =
+        "data_graph\tquery_graph\tfilter\tnormalized_entropy\t"
+        "max_label_share\tmax_min_label_ratio\tstatus";
+
+    std::string status = filter_ok ? "ok" : "filter_failed";
+
+    if (filter_ok)
+    {
+        for (ui u = 0; u < query_graph->getVerticesCount(); ++u)
+        {
+            if (candidates_count[u] == 0)
+            {
+                status = "empty_candidates";
+                break;
+            }
+        }
+    }
+
+    std::ostringstream metrics;
+    metrics << std::fixed << std::setprecision(10);
+
+    if (status == "ok")
+    {
+        // each data vertex only counts once
+        std::map<LabelID, size_t> label_counts;
+        std::vector<unsigned char> seen(data_graph->getVerticesCount(), 0);
+
+        for (ui u = 0; u < query_graph->getVerticesCount(); ++u)
+        {
+            auto &count = label_counts[query_graph->getVertexLabel(u)];
+
+            for (ui i = 0; i < candidates_count[u]; ++i)
+            {
+                const ui v = candidates[u][i];
+                if (!seen[v])
+                {
+                    seen[v] = 1;
+                    ++count;
+                }
+            }
+        }
+
+        size_t total = 0;
+        size_t largest = 0;
+        size_t smallest = std::numeric_limits<size_t>::max();
+
+        for (const auto &entry : label_counts)
+        {
+            total += entry.second;
+            largest = std::max(largest, entry.second);
+            smallest = std::min(smallest, entry.second);
+        }
+
+        double entropy = 0.0;
+        for (const auto &entry : label_counts)
+        {
+            const double p = static_cast<double>(entry.second) / total;
+            entropy -= p * std::log2(p);
+        }
+
+        // K, number of labels of the query
+        const size_t K = label_counts.size();
+
+        if (K > 1)
+        {
+            const double normalized_entropy = entropy / std::log2(K);
+            metrics << std::max(0.0, std::min(1.0, normalized_entropy));
+        }
+        else
+        {
+            // single label log2(K)=0
+            metrics << "NA";
+            status = "single_label";
+        }
+
+        metrics << '\t' << static_cast<double>(largest) / total
+                << '\t' << static_cast<double>(largest) / smallest;
+    }
+    else
+    {
+        // fail
+        metrics << "NA\tNA\tNA";
+    }
+
+    // 
+    std::ifstream existing(tsv_file);
+    const bool needs_header =
+        !existing ||
+        existing.peek() == std::ifstream::traits_type::eof();
+
+    std::string first_line;
+    if (!needs_header &&
+        (!std::getline(existing, first_line) || first_line != header))
+    {
+        std::cerr << "Unexpected TSV header: " << tsv_file << std::endl;
+        return false;
+    }
+    existing.close();
+
+    const std::string row =
+        data_file + '\t' + query_file + '\t' + filter_type + '\t' +
+        metrics.str() + '\t' + status + '\n';
+
+    std::ofstream output(tsv_file, std::ios::app);
+    if (needs_header)
+        output << header << '\n';
+
+    output << row;
+    output.close();
+
+    if (!output)
+    {
+        std::cerr << "Cannot write TSV: " << tsv_file << std::endl;
+        return false;
+    }
+
+    // print to terminal。
+    if (needs_header)
+        std::cout << header << '\n';
+
+    std::cout << row << std::flush;
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     MatchingCommand command(argc, argv);
+    const bool label_stats_only = command.commandOptionExists("-label_stats");
+    const std::string label_stats_file = command.getCommandOption("-label_stats");
+
+    if (label_stats_only &&
+        (label_stats_file.empty() || label_stats_file[0] == '-'))
+    {
+        std::cerr << "Usage: -label_stats OUTPUT.tsv" << std::endl;
+        return 1;
+    }
     int MemSize = 0;
     std::string input_query_graph_file = command.getQueryGraphFilePath();
     std::string input_data_graph_file = command.getDataGraphFilePath();
@@ -119,14 +258,16 @@ int main(int argc, char **argv)
     std::string QN = command.getQueryNumber();
     std::string QNL = command.getQueryNumberL();
     int FairT = stoi(command.getFairT());
-    std::vector<double> tau_values = parseTauValues(command.getTau());
+    // std::vector<double> tau_values = parseTauValues(command.getTau());
+    std::vector<double> tau_values = label_stats_only ? std::vector<double>() : parseTauValues(command.getTau());
     // int QNLR=stoi(QNL);
     // int QNR=stoi(QN);
     int QNLR = 1;
     int QNR = 1;
     // cout<<QNL<<"QNL"<<endl;
     std::string Dataset = command.getDatasetName();
-    cout << Dataset << endl;
+    // cout << Dataset << endl;
+    if (!label_stats_only) cout << Dataset << endl;
     std::string QuerN1 = "../../../../../Pilos-Subgraph_Matching/dataset/";
     std::string QuerN = "../../../../../FairSM/dataset/";
     string Data_graphQ = QuerN + Dataset + "/data_graph/" + Dataset + ".graph";
@@ -170,7 +311,10 @@ int main(int argc, char **argv)
         data_graph->loadGraphFromFileCompressed(degree_file_path, edge_file_path, label_file_path);
     }
 
-    EvaluateQuery::SetTauValues(tau_values, data_graph);
+    // EvaluateQuery::SetTauValues(tau_values, data_graph);
+
+    if (!label_stats_only)
+        EvaluateQuery::SetTauValues(tau_values, data_graph);
 
     auto end = std::chrono::high_resolution_clock::now();
 
@@ -205,7 +349,8 @@ int main(int argc, char **argv)
         std::vector<std::pair<VertexID, VertexID>> constraints;
         std::unordered_map<VertexID, std::pair<std::set<VertexID>, std::set<VertexID>>> full_constraints;
         std::unordered_map<VertexID, std::pair<std::set<VertexID>, std::set<VertexID>>> ordered_constraints;
-        if (enable_symmetry)
+        // if (enable_symmetry)
+        if (enable_symmetry && !label_stats_only)
         {
             std::unordered_map<VertexID, std::set<VertexID>> cosets = ANALYZE_SYMMETRY::analyze_symmetry(query_graph, permutations);
 
@@ -239,50 +384,55 @@ int main(int argc, char **argv)
         std::vector<std::vector<std::unordered_map<VertexID, std::vector<VertexID>>>> NTE_Candidates;
         ui *nodeID = new ui[data_graph->getVerticesCount()];
         std::fill(nodeID, nodeID + data_graph->getVerticesCount(), 0);
+        bool filter_ok = false;
         if (input_filter_type == "LDF")
         {
-            FilterVertices::LDFFilter(data_graph, query_graph, candidates, candidates_count);
+            filter_ok = FilterVertices::LDFFilter(data_graph, query_graph, candidates, candidates_count);
         }
         else if (input_filter_type == "NLF")
         {
-            FilterVertices::NLFFilter(data_graph, query_graph, candidates, candidates_count);
+            filter_ok = FilterVertices::NLFFilter(data_graph, query_graph, candidates, candidates_count);
         }
         else if (input_filter_type == "GQL")
         {
-            FilterVertices::GQLFilter(data_graph, query_graph, candidates, candidates_count);
+            filter_ok = FilterVertices::GQLFilter(data_graph, query_graph, candidates, candidates_count);
         }
         else if (input_filter_type == "TSO")
         {
-            FilterVertices::TSOFilter(data_graph, query_graph, candidates, candidates_count, tso_order, tso_tree);
+            filter_ok = FilterVertices::TSOFilter(data_graph, query_graph, candidates, candidates_count, tso_order, tso_tree);
         }
         else if (input_filter_type == "CFL")
         {
-            FilterVertices::CFLFilter(data_graph, query_graph, candidates, candidates_count, cfl_order, cfl_tree);
+            filter_ok = FilterVertices::CFLFilter(data_graph, query_graph, candidates, candidates_count, cfl_order, cfl_tree);
         }
         else if (input_filter_type == "DPiso")
         {
-            FilterVertices::DPisoFilter(data_graph, query_graph, candidates, candidates_count, dpiso_order, dpiso_tree);
+            filter_ok = FilterVertices::DPisoFilter(data_graph, query_graph, candidates, candidates_count, dpiso_order, dpiso_tree);
         }
         else if (input_filter_type == "VEQ")
         {
-            FilterVertices::VEQFilter(data_graph, query_graph, candidates, candidates_count, veq_order, veq_tree);
+            filter_ok = FilterVertices::VEQFilter(data_graph, query_graph, candidates, candidates_count, veq_order, veq_tree);
         }
         else if (input_filter_type == "CECI")
         {
-            FilterVertices::CECIFilter(data_graph, query_graph, candidates, candidates_count, ceci_order, ceci_tree, TE_Candidates, NTE_Candidates);
+            filter_ok = FilterVertices::CECIFilter(data_graph, query_graph, candidates, candidates_count, ceci_order, ceci_tree, TE_Candidates, NTE_Candidates);
         }
         else if (input_filter_type == "RM")
         {
-            FilterVertices::RMFilter(data_graph, query_graph, candidates, candidates_count, storage);
+            filter_ok = FilterVertices::RMFilter(data_graph, query_graph, candidates, candidates_count, storage);
         }
         else if (input_filter_type == "CaLiG")
         {
-            FilterVertices::CaLiGFilter(data_graph, query_graph, candidates, candidates_count);
+            filter_ok = FilterVertices::CaLiGFilter(data_graph, query_graph, candidates, candidates_count);
         }
         else
         {
             std::cout << "The specified filter type '" << input_filter_type << "' is not supported." << std::endl;
             exit(-1);
+        }
+        if (label_stats_only)
+        {
+            return writeFilteredLabelStats(data_graph, query_graph,candidates, candidates_count, filter_ok,input_data_graph_file, input_query_graph_file,input_filter_type, label_stats_file) ? 0 : 1;
         }
         if (getValue1() > MemSize)
             MemSize = getValue1();
