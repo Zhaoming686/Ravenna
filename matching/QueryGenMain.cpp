@@ -61,8 +61,8 @@ int main(int argc, char** argv) {
     mkdir_p(query_dir);
 
     const bool sparse = (qprop == "sparse");
-    const vector<int> sizes = {24};
-    const int N = 1;
+    const vector<int> sizes = {12, 24, 36, 48, 60};
+    const int N = 400;
 
     DIR* dir = opendir(data_dir.c_str());
     if (!dir) {

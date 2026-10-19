@@ -1502,7 +1502,7 @@ EvaluateQuery::LFTJ(const Graph *data_graph, const Graph *query_graph, ui *&node
 
     ui* label_cover_cnt = new ui[query_graph->getLabelsCount()]();
 
-    const int interval_ms = 5000;
+    const int interval_ms = 1000;
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL, interval_ms);
     int next_t = 0;
@@ -8011,10 +8011,10 @@ EvaluateQuery::MMDIV(const Graph *data_graph, const Graph *query_graph, ui *&nod
     ui *label_target = nullptr;
     InitLabelValByCandidates(query_graph, labelToCandidates, label_val, label_target);
     // // record once every 1000 ms
-    // const int interval_ms = 1000;
+    const int interval_ms = 1000;
 
     // record once every 100 ms
-    const int interval_ms = 5000;
+    // const int interval_ms = 5000;
 
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL /*ms*/, interval_ms);
@@ -9568,10 +9568,10 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
     ui *label_target = nullptr;
     InitLabelValByCandidates(query_graph, labelToCandidates, label_val, label_target);
     // record once every 1000 ms
-    // const int interval_ms = 1000;
+    const int interval_ms = 1000;
 
     // record once every 100 ms
-    const int interval_ms = 5000;
+    // const int interval_ms = 5000;
 
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL /*ms*/, interval_ms);
@@ -10323,10 +10323,10 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
     ui *label_target = nullptr;
     InitLabelValByCandidates(query_graph, labelToCandidates, label_val, label_target);
     // record once every 1000 ms
-    // const int interval_ms = 1000;
+    const int interval_ms = 1000;
 
     // record once every 100 ms
-    const int interval_ms = 5000;
+    // const int interval_ms = 5000;
 
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL /*ms*/, interval_ms);
@@ -10995,9 +10995,9 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
     ui *label_target = nullptr;
     InitLabelValByCandidates(query_graph, labelToCandidates, label_val, label_target);
     // record once every 1000 ms
-    // const int interval_ms = 1000;
+    const int interval_ms = 1000;
     // record once every 100 ms
-    const int interval_ms = 5000;
+    // const int interval_ms = 5000;
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL /*ms*/, interval_ms);
     int next_t = 0;                // the next timepoint to record timepoint（0,100,200,...）
@@ -12488,8 +12488,8 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
     ui *valid_candidate_idx_temp = new ui[max_candidates];
     // checkpoint for time
     // every 100ms
-    // const int interval_ms = 1000;
-    const int interval_ms = 5000;
+    const int interval_ms = 1000;
+    // const int interval_ms = 5000;
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL /*ms*/, interval_ms);
     int next_t = 0;                // next time point to record, initially 0ms, then 100ms, 200ms, ...
@@ -13227,8 +13227,8 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
     ui *valid_candidate_idx_temp = new ui[max_candidates];
     // checkpoint for time
     // every 100ms
-    // const int interval_ms = 1000;
-    const int interval_ms = 5000;
+    const int interval_ms = 1000;
+    // const int interval_ms = 5000;
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL /*ms*/, interval_ms);
     int next_t = 0;                // next time point to record, initially 0ms, then 100ms, 200ms, ...
@@ -13874,8 +13874,8 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
     ui *valid_candidate_idx_temp = new ui[max_candidates];
     // checkpoint for time
     // every 100ms
-    // const int interval_ms = 1000;
-    const int interval_ms = 5000;
+    const int interval_ms = 1000;
+    // const int interval_ms = 5000;
     CheckpointRecorder ck;
     InitCheckpointRecorder(ck, TimeL /*ms*/, interval_ms);
     int next_t = 0;                // next time point to record, initially 0ms, then 100ms, 200ms, ...
