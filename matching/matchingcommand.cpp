@@ -31,6 +31,8 @@ MatchingCommand::MatchingCommand(const int argc, char **argv) : CommandParser(ar
     options_key[OptionKeyword::outputF] = "-SF";
     options_key[OptionKeyword::FairT] = "-FairT";
     options_key[OptionKeyword::Tau] = "-tau";
+    options_key[ConstraintRatio] = "-constraint_ratio";
+    options_key[ConstraintSeed] = "-constraint_seed";
     processOptions();
 };
 
@@ -95,4 +97,6 @@ void MatchingCommand::processOptions() {
     options_value[OptionKeyword::Dataset] = getCommandOption(options_key[OptionKeyword::Dataset]);
     options_value[OptionKeyword::QueryNumberL] = getCommandOption(options_key[OptionKeyword::QueryNumberL]);
     options_value[OptionKeyword::Tau] = getCommandOption(options_key[OptionKeyword::Tau]);
+    options_value[ConstraintRatio] = getCommandOption(options_key[ConstraintRatio]);
+    options_value[ConstraintSeed] = getCommandOption(options_key[ConstraintSeed]);
 }

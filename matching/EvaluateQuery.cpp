@@ -13,11 +13,16 @@
 #include "utility/pretty_print.h"
 #include <random>
 #include <stdexcept>
+#include <cmath>
+#include <fstream>
+#include <sstream>
 #include "MatchCover.h"
 
 namespace
 {
     std::vector<double> g_tau_values;
+    std::vector<uint8_t> g_constraint_mask;
+    size_t g_constraint_count = 0;
 
     EvaluateQuery::EnumClock::time_point g_enum_start;
     double g_first_ms = -1;
@@ -91,6 +96,75 @@ namespace
         active.clear();
         return count;
     }
+}
+
+void EvaluateQuery::SetQueryConstraints(const Graph *query_graph, const std::string &query_file, const std::string &constraint_file, double ratio, uint32_t seed){
+    if (!std::isfinite(ratio) || ratio <= 0 || ratio > 1)
+        throw std::invalid_argument("-constraint_ratio must be in (0, 1].");
+
+    std::vector<LabelID> labels;
+    for (ui u = 0; u < query_graph->getVerticesCount(); ++u)
+        labels.push_back(query_graph->getVertexLabel(u));
+    std::sort(labels.begin(), labels.end());
+    labels.erase(std::unique(labels.begin(), labels.end()), labels.end());
+    if (labels.empty())
+        throw std::invalid_argument("query graph has no labels.");
+
+    const size_t query_label_count = labels.size();
+    g_constraint_count = static_cast<size_t>(std::ceil(ratio * query_label_count));
+
+    if (ratio < 1) {
+        if (constraint_file.empty())
+            throw std::invalid_argument("-constraint_file is required when -constraint_ratio < 1.");
+        std::ifstream input(constraint_file);
+        if (!input)
+            throw std::runtime_error("Cannot read prepared constraints: " + constraint_file);
+        const std::string query_name = query_file.substr(query_file.find_last_of('/') + 1);
+        bool found = false;
+        std::string line;
+        while (std::getline(input, line)) {
+            std::istringstream row(line);
+            std::string saved_query;
+            uint32_t saved_seed;
+            if (!(row >> std::quoted(saved_query) >> saved_seed))
+                throw std::runtime_error("Invalid constraint record: " + constraint_file);
+            saved_query = saved_query.substr(saved_query.find_last_of('/') + 1);
+            if (saved_query != query_name || saved_seed != seed) continue;
+            auto order = labels;
+            for (LabelID &l : order)
+                if (!(row >> l))
+                    throw std::runtime_error("Invalid constraint labels: " + constraint_file);
+            std::string extra;
+            if (row >> extra)
+                throw std::runtime_error("Extra constraint labels: " + constraint_file);
+            auto check = order;
+            std::sort(check.begin(), check.end());
+            if (check != labels)
+                throw std::runtime_error("Constraints do not match query labels: " + constraint_file);
+            labels.swap(order);
+            found = true;
+            break;
+        }
+        if (!found)
+            throw std::runtime_error("Query/seed missing from prepared constraints: " + query_name);
+    }
+    labels.resize(g_constraint_count);
+    std::sort(labels.begin(), labels.end());
+
+    g_constraint_mask.assign(query_graph->getLabelsCount(), 0);
+    for (LabelID l : labels) g_constraint_mask[l] = 1;
+
+    std::cout << "CONSTRAINTS\tseed=" << seed << "\tratio=" << ratio
+              << "\tfile=" << (ratio < 1 ? constraint_file : "none")
+              << "\tquery_labels=" << query_label_count
+              << "\tconstrained_labels=" << g_constraint_count
+              << "\tactual_ratio=" << static_cast<double>(g_constraint_count) / query_label_count
+              << "\tlabels=";
+    for (size_t i = 0; i < labels.size(); ++i) {
+        if (i) std::cout << ',';
+        std::cout << labels[i];
+    }
+    std::cout << std::endl;
 }
 
 void EvaluateQuery::SetTauValues(const std::vector<double> &tau_values, const Graph *data_graph)
@@ -8705,7 +8779,9 @@ void EvaluateQuery::InitQueryLabelFlag(const Graph *query_graph, uint8_t *&label
     ui L = query_graph->getLabelsCount(); // labels_count_ = max_label_id + 1
 
     label_flag = new uint8_t[L];
-    std::fill(label_flag, label_flag + L, 0); // initial as 0
+    // std::fill(label_flag, label_flag + L, 0); // initial as 0
+    for (ui l = 0; l < L; ++l)
+           label_flag[l] = g_constraint_mask[l] ? 0 : 1;
 }
 
 // initial label_val according to the candidates
@@ -8734,6 +8810,7 @@ void EvaluateQuery::InitLabelValByCandidates(const Graph *query_graph, const std
         const auto &vec = kv.second; // already deduplicated
         size_t cnt = vec.size();
         double tau = g_tau_values.size() == 1 ? g_tau_values[0] : g_tau_values[label];
+        if (!g_constraint_mask[label]) tau = 0.0;
 
         ui tgt = (ui)std::ceil(tau * (double)cnt); // label threshold
         label_target[label] = tgt;
@@ -9239,8 +9316,10 @@ EvaluateQuery::Checkpoint EvaluateQuery::ReadCheckpoint(double observed_ms, size
 
     ComputeSatCovAndRelCov(sat, cov_sat, avg_rel_cov, labelsQuery, labelsQuerySize,
                           label_flag, label_cover_cnt, label_target, &absolute_coverage);
+    if (total == 0) sat = cov_sat = 0.0;
+    const double sat_constrained = g_constraint_count ? sat * labelsQuerySize / g_constraint_count : 0.0;
     return {observed_ms, observed_ms, peak, total, base, vn, vnsub,
-            absolute_coverage, sat, cov_sat, CheckpointKind::Sample};
+            absolute_coverage, sat, cov_sat, sat_constrained, CheckpointKind::Sample};
 }
 
 void EvaluateQuery::PushCheckpoint(CheckpointRecorder& rec, int t_ms, const Checkpoint& point, CheckpointKind kind) {
@@ -9255,8 +9334,10 @@ void EvaluateQuery::PrintCheckpoints(const CheckpointRecorder& rec, bool split) 
     std::cout << std::fixed << std::setprecision(6);
     std::cout << "record_type\tsample_kind\tt_ms\tobserved_ms\twindow_ms"
                  "\tthroughput_eps\tavg_throughput_eps\tpeak_rss_mib"
-                 "\tbase_cnt\tvn_cnt\tvnsub_cnt\ttotal_cnt"
-                 "\thard_sat\tcov_sat\tabsolute_coverage\n";
+                 "\tbase_cnt\tvn_cnt\tvnsub_cnt\ttotal_cnt" 
+                 "\thard_sat\tcov_sat\tabsolute_coverage\thard_sat_constrained\n";
+                //  "\thard_sat\tcov_sat\tabsolute_coverage\n";
+                
     const char* names[] = {"SAMPLE", "GAP_FILL", "TAIL_FILL", "FINAL"};
     double previous_ms = 0;
     size_t previous_total = 0;
@@ -9284,8 +9365,9 @@ void EvaluateQuery::PrintCheckpoints(const CheckpointRecorder& rec, bool split) 
         std::cout << '\t';
         if (split) std::cout << p.base << '\t' << p.vn << '\t' << p.vnsub;
         else std::cout << "NA\tNA\tNA";
-        std::cout << '\t' << p.total << '\t' << p.hard_sat << '\t' << p.cov_sat
-                  << '\t' << p.absolute_coverage << '\n';
+        std::cout << '\t' << p.total << '\t' << p.hard_sat << '\t' << p.cov_sat << '\t' << p.absolute_coverage << '\t' << p.hard_sat_constrained << '\n';
+                //   << '\t' << p.absolute_coverage << '\n';
+                
     };
     for (const auto& p : rec.points) print(p);
     Checkpoint final = rec.final_point;
@@ -9364,6 +9446,7 @@ void EvaluateQuery::ComputeSatCovAndRelCov(double &last_sat, double &last_cov_sa
     {
         LabelID l = labelsQuery[i];
         covered += label_cover_cnt[l]; // disjoint labels; raw distinct-vertex counts
+        if (!g_constraint_mask[l]) continue;
         ui target = label_target[l];
 
         double rho = 0.0;

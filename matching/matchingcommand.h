@@ -34,6 +34,8 @@ enum OptionKeyword {
     FairT =22,
     QueryNumberL = 23,
     Tau = 24,
+    ConstraintRatio = 25,
+    ConstraintSeed = 26,
 };
 
 class MatchingCommand : public CommandParser{
@@ -144,6 +146,13 @@ public:
         std::string getTau()
     {
         return options_value[OptionKeyword::Tau];
+    }
+    std::string getConstraintRatio() {
+        return options_value[ConstraintRatio].empty() ? "1" : options_value[ConstraintRatio];
+    }
+
+    std::string getConstraintSeed() {
+        return options_value[ConstraintSeed].empty() ? "42" : options_value[ConstraintSeed];
     }
 
 };

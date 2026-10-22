@@ -615,6 +615,10 @@ int main(int argc, char **argv)
         size_t valid_vtx_count = 0;
         sscanf(input_time_limit.c_str(), "%zu", &time_limit);
         int TimeL1 = stoi(TimeL);
+        EvaluateQuery::SetQueryConstraints(query_graph, input_query_graph_file,
+            command.getCommandOption("-constraint_file"),
+            std::stod(command.getConstraintRatio()),
+            std::stoul(command.getConstraintSeed()));
         start = std::chrono::high_resolution_clock::now();
         // cout<<input_engine_type<<endl;
         if (input_engine_type == "EXPLORE")

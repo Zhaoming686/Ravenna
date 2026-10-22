@@ -196,7 +196,8 @@ public:
         long long peak_kib;
         size_t total, base, vn, vnsub;
         size_t absolute_coverage; // distinct data vertices in delivered full embeddings
-        double hard_sat, cov_sat;
+        // double hard_sat, cov_sat;
+        double hard_sat, cov_sat, hard_sat_constrained;
         CheckpointKind kind;
     };
     struct CheckpointRecorder {
@@ -254,6 +255,7 @@ public:
  
     // tau values
     static void SetTauValues(const std::vector<double> &tau_values, const Graph *data_graph);
+    static void SetQueryConstraints(const Graph *query_graph, const std::string &query_file, const std::string &constraint_file, double ratio, uint32_t seed);
 
 private:
     static void generateBN(const Graph *query_graph, ui *order, ui *pivot, ui **&bn, ui *&bn_count);
