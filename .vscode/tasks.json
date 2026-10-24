@@ -10,18 +10,24 @@
         "--preset",
         "${input:buildPreset}"
       ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "group": "build",
       "problemMatcher": []
     },
     {
       "label": "run SubgraphMatching",
       "type": "process",
-      "command": "${workspaceFolder}/build-${input:buildPreset}/matching/SubgraphMatching.out",
+      "command": "bash",
       "args": [
+        "-c",
+        "set -euo pipefail; query=$1; shift; checksum=$(cksum < \"$query\"); read -r crc bytes <<< \"$checksum\"; seed=$(( (42 ^ crc) & 4294967295 )); exec \"$@\" -q \"$query\" -constraint_seed \"$seed\"",
+        "run-subgraphmatching",
+        "${workspaceFolder}/datasets/original/query_graph/dblp/query_G_24_1.graph",
+        "${workspaceFolder}/build-${input:buildPreset}/matching/SubgraphMatching.out",
         "-d",
-        "${workspaceFolder}/case_study/data_graph/expanded_100k.graph",
-        "-q",
-        "${workspaceFolder}/case_study/query_graph/query_G_24_1.graph",
+        "${workspaceFolder}/datasets/original/data_graph/dblp.graph",
         "-filter",
         "VEQ",
         "-order",
@@ -31,7 +37,11 @@
         "-time",
         "10",
         "-tau",
-        "0.1,0.2,0.3,0.4,0.5"
+        "0.3",
+        "-constraint_ratio",
+        "${input:constraintRatio}",
+        "-constraint_file",
+        "${workspaceFolder}/datasets/constraints/dblp_Loriginal_seed42.tsv"
       ],
       "options": {
         "cwd": "${workspaceFolder}",
@@ -55,6 +65,20 @@
         "noGlobal"
       ],
       "default": "local-test"
+    },
+    {
+      "id": "constraintRatio",
+      "type": "pickString",
+      "description": "Choose constraint ratio (1 = all query labels)",
+      "options": [
+        "0.1",
+        "0.2",
+        "0.3",
+        "0.4",
+        "0.5",
+        "1"
+      ],
+      "default": "1"
     }
   ]
 }

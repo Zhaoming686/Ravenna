@@ -12806,6 +12806,51 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
             if (visited_vertices[v])
             {
                 ui utemp = reverse_embedding[v];
+
+                VNTemp.clear();
+                VSubTemp.clear();
+
+                int pu = 0; // VN[u]
+                int pe = 0; // VN[utemp]
+                int ps = 0; // VSub[utemp]
+
+                while (pu < (int)VN[u].size() &&
+                        (pe < (int)VN[utemp].size() || ps < (int)VSub[utemp].size()))
+                {
+                    ui x = candidates[u][VN[u][pu]];
+
+                    while (pe < (int)VN[utemp].size() &&
+                            candidates[utemp][VN[utemp][pe]] < x)
+                    {
+                        ++pe;
+                    }
+
+                    while (ps < (int)VSub[utemp].size() &&
+                            candidates[utemp][VSub[utemp][ps]] < x)
+                    {
+                        ++ps;
+                    }
+
+                    if (pe < (int)VN[utemp].size() &&
+                        candidates[utemp][VN[utemp][pe]] == x)
+                    {
+                        VNTemp.push_back(VN[utemp][pe]);
+                        ++pe;
+                    }
+
+                    if (ps < (int)VSub[utemp].size() &&
+                        candidates[utemp][VSub[utemp][ps]] == x)
+                    {
+                        VSubTemp.push_back(VSub[utemp][ps]);
+                        ++ps;
+                    }
+
+                    ++pu;
+                }
+
+                VN[utemp].swap(VNTemp);
+                VSub[utemp].swap(VSubTemp);
+
                 bool repaired = false;
 
                 // Try to remap current query vertex u to an unvisited equivalent candidate.
@@ -12822,7 +12867,6 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
                     }
                 }
 
-                // If u cannot be repaired, try to move the previous owner utemp away.
                 if (!repaired)
                 {
                     for (ui vn_idx : VN[utemp])
@@ -12853,50 +12897,6 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
                 // and mark this candidate as failed.
                 if (!repaired)
                 {
-                    VNTemp.clear();
-                    VSubTemp.clear();
-
-                    int pu = 0; // VN[u]
-                    int pe = 0; // VN[utemp]
-                    int ps = 0; // VSub[utemp]
-
-                    while (pu < (int)VN[u].size() &&
-                           (pe < (int)VN[utemp].size() || ps < (int)VSub[utemp].size()))
-                    {
-                        ui x = candidates[u][VN[u][pu]];
-
-                        while (pe < (int)VN[utemp].size() &&
-                               candidates[utemp][VN[utemp][pe]] < x)
-                        {
-                            ++pe;
-                        }
-
-                        while (ps < (int)VSub[utemp].size() &&
-                               candidates[utemp][VSub[utemp][ps]] < x)
-                        {
-                            ++ps;
-                        }
-
-                        if (pe < (int)VN[utemp].size() &&
-                            candidates[utemp][VN[utemp][pe]] == x)
-                        {
-                            VNTemp.push_back(VN[utemp][pe]);
-                            ++pe;
-                        }
-
-                        if (ps < (int)VSub[utemp].size() &&
-                            candidates[utemp][VSub[utemp][ps]] == x)
-                        {
-                            VSubTemp.push_back(VSub[utemp][ps]);
-                            ++ps;
-                        }
-
-                        ++pu;
-                    }
-
-                    VN[utemp].swap(VNTemp);
-                    VSub[utemp].swap(VSubTemp);
-
                     continueFlagBefore = false;
 
                     VN[u].clear();
