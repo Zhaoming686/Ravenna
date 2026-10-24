@@ -12867,31 +12867,31 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
                     }
                 }
 
-                if (!repaired)
-                {
-                    for (ui vn_idx : VN[utemp])
-                    {
-                        VertexID vn_v = candidates[utemp][vn_idx];
+                // if (!repaired)
+                // {
+                //     for (ui vn_idx : VN[utemp])
+                //     {
+                //         VertexID vn_v = candidates[utemp][vn_idx];
 
-                        if (!visited_vertices[vn_v])
-                        {
-                            embedding[utemp] = vn_v;
-                            idx_embedding[utemp] = vn_idx;
+                //         if (!visited_vertices[vn_v])
+                //         {
+                //             embedding[utemp] = vn_v;
+                //             idx_embedding[utemp] = vn_idx;
 
-                            // Update occupancy and reverse mapping.
-                            visited_vertices[v] = false;
-                            embd_vertices[v] = false;
-                            reverse_embedding.erase(v);
+                //             // Update occupancy and reverse mapping.
+                //             visited_vertices[v] = false;
+                //             embd_vertices[v] = false;
+                //             reverse_embedding.erase(v);
 
-                            visited_vertices[vn_v] = true;
-                            embd_vertices[vn_v] = true;
-                            reverse_embedding[vn_v] = utemp;
+                //             visited_vertices[vn_v] = true;
+                //             embd_vertices[vn_v] = true;
+                //             reverse_embedding[vn_v] = utemp;
 
-                            repaired = true;
-                            break;
-                        }
-                    }
-                }
+                //             repaired = true;
+                //             break;
+                //         }
+                //     }
+                // }
 
                 // If neither side can be repaired, perform the normal intersection update
                 // and mark this candidate as failed.
