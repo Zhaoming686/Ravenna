@@ -1625,6 +1625,10 @@ EvaluateQuery::LFTJ(const Graph *data_graph, const Graph *query_graph, ui *&node
                     PushCheckpoint(ck, next_t, point, kind);
                     next_t += interval_ms;
                 }
+                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                    ck.stop_reason = EnumerationStop::HardSatisfied;
+                    goto EXIT;
+                }
             }
 
             if (ens > TimeL) {
@@ -8127,6 +8131,10 @@ EvaluateQuery::MMDIV(const Graph *data_graph, const Graph *query_graph, ui *&nod
                     PushCheckpoint(ck, next_t, point, kind);
                     next_t += interval_ms;
                 }
+                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                    ck.stop_reason = EnumerationStop::HardSatisfied;
+                    goto EXIT;
+                }
             }
 
             if (ens > TimeL)
@@ -9379,7 +9387,7 @@ void EvaluateQuery::PrintCheckpoints(const CheckpointRecorder& rec, bool split) 
     if (g_rss_before < 0) std::cout << "NA"; else std::cout << g_rss_before / 1024.0;
     std::cout << "\telapsed_s=" << final.observed_ms / 1000.0
               << "\tpeak_reset=" << (g_peak_ok ? "ok" : "unavailable");
-    const char* reasons[] = {"completed", "time_limit", "output_limit"};
+    const char* reasons[] = {"completed", "time_limit", "output_limit", "hard_satisfied"};
     std::cout << "\tstop_reason=" << reasons[static_cast<int>(rec.stop_reason)] << '\n';
     std::cout.flags(flags);
     std::cout.precision(precision);
@@ -9696,6 +9704,10 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
                     PushCheckpoint(ck, next_t, point, kind);
                      
                     next_t += interval_ms;
+                }
+                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                    ck.stop_reason = EnumerationStop::HardSatisfied;
+                    goto EXIT;
                 }
             }
 
@@ -10057,6 +10069,10 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
                                 PushCheckpoint(ck, next_t, point, kind);
                                     
                                 next_t += interval_ms;
+                            }
+                            if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                                ck.stop_reason = EnumerationStop::HardSatisfied;
+                                goto EXIT;
                             }
                         }
 
@@ -10452,6 +10468,10 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                                          
                     next_t += interval_ms;
                 }
+                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                    ck.stop_reason = EnumerationStop::HardSatisfied;
+                    goto EXIT;
+                }
             }
 
             if (ens > TimeL)
@@ -10746,6 +10766,10 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                             PushCheckpoint(ck, next_t, point, kind);
                              
                             next_t += interval_ms;
+                        }
+                        if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                            ck.stop_reason = EnumerationStop::HardSatisfied;
+                            goto EXIT;
                         }
                     }
 
@@ -11123,6 +11147,10 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
                     
                     next_t += interval_ms;
                 }
+                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                    ck.stop_reason = EnumerationStop::HardSatisfied;
+                    goto EXIT;
+                }
             }
 
             if (ens > TimeL)
@@ -11249,6 +11277,11 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
                     PushCheckpoint(ck, next_t, point, kind);
                     
                     next_t += interval_ms;
+                }
+
+                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                    ck.stop_reason = EnumerationStop::HardSatisfied;
+                    goto EXIT;
                 }
             }
 
@@ -12660,6 +12693,11 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
                      
                     next_t += interval_ms;
                 }
+                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                    ck.stop_reason = EnumerationStop::HardSatisfied;
+                    goto EXIT;
+                }
+
             }
 
             if (ens > TimeL)
@@ -13363,6 +13401,10 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
                      
                     next_t += interval_ms;
                 }
+                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                    ck.stop_reason = EnumerationStop::HardSatisfied;
+                    goto EXIT;
+                }
             }
 
             if (ens > TimeL)
@@ -14044,6 +14086,10 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
                     const auto kind = next_t + interval_ms <= TimeL && ens >= next_t + interval_ms ? CheckpointKind::GapFill : CheckpointKind::Sample;
                     PushCheckpoint(ck, next_t, point, kind);
                     next_t += interval_ms;
+                }
+                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                    ck.stop_reason = EnumerationStop::HardSatisfied;
+                    goto EXIT;
                 }
             }
 

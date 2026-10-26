@@ -190,7 +190,7 @@ public:
     //     size_t *embedding_cnt_point = nullptr;
     using EnumClock = std::chrono::high_resolution_clock;
     enum class CheckpointKind { Sample, GapFill, TailFill, Final };
-    enum class EnumerationStop { Completed, TimeLimit, OutputLimit };
+    enum class EnumerationStop { Completed, TimeLimit, OutputLimit, HardSatisfied};
     struct Checkpoint {
         double t_ms, observed_ms; // fixed grid time; actual observation time
         long long peak_kib;
