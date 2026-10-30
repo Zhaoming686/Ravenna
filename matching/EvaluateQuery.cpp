@@ -13539,6 +13539,35 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
             if (visited_vertices[v])
             {
                 ui utemp = reverse_embedding[v];
+
+                VNTemp.clear();
+
+                int pu = 0; // VN[u]
+                int pe = 0; // VN[utemp]
+                int ps = 0; // VSub[utemp]
+
+                while (pu < (int)VN[u].size() && pe < (int)VN[utemp].size())
+                {
+                    ui x = candidates[u][VN[u][pu]];
+
+                    while (pe < (int)VN[utemp].size() &&
+                            candidates[utemp][VN[utemp][pe]] < x)
+                    {
+                        ++pe;
+                    }
+
+                    if (pe < (int)VN[utemp].size() &&
+                        candidates[utemp][VN[utemp][pe]] == x)
+                    {
+                        VNTemp.push_back(VN[utemp][pe]);
+                        ++pe;
+                    }
+
+                    ++pu;
+                }
+
+                VN[utemp].swap(VNTemp);
+
                 bool repaired = false;
 
                 // Try to remap current query vertex u to an unvisited equivalent candidate.
@@ -13556,64 +13585,36 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
                 }
 
                 // If u cannot be repaired, try to move the previous owner utemp away.
-                if (!repaired)
-                {
-                    for (ui vn_idx : VN[utemp])
-                    {
-                        VertexID vn_v = candidates[utemp][vn_idx];
+                // if (!repaired)
+                // {
+                //     for (ui vn_idx : VN[utemp])
+                //     {
+                //         VertexID vn_v = candidates[utemp][vn_idx];
 
-                        if (!visited_vertices[vn_v])
-                        {
-                            embedding[utemp] = vn_v;
-                            idx_embedding[utemp] = vn_idx;
+                //         if (!visited_vertices[vn_v])
+                //         {
+                //             embedding[utemp] = vn_v;
+                //             idx_embedding[utemp] = vn_idx;
 
-                            // Update occupancy and reverse mapping.
-                            visited_vertices[v] = false;
-                            embd_vertices[v] = false;
-                            reverse_embedding.erase(v);
+                //             // Update occupancy and reverse mapping.
+                //             visited_vertices[v] = false;
+                //             embd_vertices[v] = false;
+                //             reverse_embedding.erase(v);
 
-                            visited_vertices[vn_v] = true;
-                            embd_vertices[vn_v] = true;
-                            reverse_embedding[vn_v] = utemp;
+                //             visited_vertices[vn_v] = true;
+                //             embd_vertices[vn_v] = true;
+                //             reverse_embedding[vn_v] = utemp;
 
-                            repaired = true;
-                            break;
-                        }
-                    }
-                }
+                //             repaired = true;
+                //             break;
+                //         }
+                //     }
+                // }
 
                 // If neither side can be repaired, perform the normal intersection update
                 // and mark this candidate as failed.
                 if (!repaired)
                 {
-                    VNTemp.clear();
-
-                    int pu = 0; // VN[u]
-                    int pe = 0; // VN[utemp]
-                    int ps = 0; // VSub[utemp]
-
-                    while (pu < (int)VN[u].size() && pe < (int)VN[utemp].size())
-                    {
-                        ui x = candidates[u][VN[u][pu]];
-
-                        while (pe < (int)VN[utemp].size() &&
-                               candidates[utemp][VN[utemp][pe]] < x)
-                        {
-                            ++pe;
-                        }
-
-                        if (pe < (int)VN[utemp].size() &&
-                            candidates[utemp][VN[utemp][pe]] == x)
-                        {
-                            VNTemp.push_back(VN[utemp][pe]);
-                            ++pe;
-                        }
-
-                        ++pu;
-                    }
-
-                    VN[utemp].swap(VNTemp);
-
                     continueFlagBefore = false;
 
                     VN[u].clear();
@@ -14237,6 +14238,50 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
             if (visited_vertices[v])
             {
                 ui utemp = reverse_embedding[v];
+
+                VNTemp.clear();
+                VSubTemp.clear();
+
+                int pu = 0; // VN[u]
+                int pe = 0; // VN[utemp]
+                int ps = 0; // VSub[utemp]
+
+                while (pu < (int)VN[u].size() &&
+                        (pe < (int)VN[utemp].size() || ps < (int)VSub[utemp].size()))
+                {
+                    ui x = candidates[u][VN[u][pu]];
+
+                    while (pe < (int)VN[utemp].size() &&
+                            candidates[utemp][VN[utemp][pe]] < x)
+                    {
+                        ++pe;
+                    }
+
+                    while (ps < (int)VSub[utemp].size() &&
+                            candidates[utemp][VSub[utemp][ps]] < x)
+                    {
+                        ++ps;
+                    }
+
+                    if (pe < (int)VN[utemp].size() &&
+                        candidates[utemp][VN[utemp][pe]] == x)
+                    {
+                        VNTemp.push_back(VN[utemp][pe]);
+                        ++pe;
+                    }
+
+                    if (ps < (int)VSub[utemp].size() &&
+                        candidates[utemp][VSub[utemp][ps]] == x)
+                    {
+                        VSubTemp.push_back(VSub[utemp][ps]);
+                        ++ps;
+                    }
+
+                    ++pu;
+                }
+
+                VN[utemp].swap(VNTemp);
+
                 bool repaired = false;
 
                 // Try to remap current query vertex u to an unvisited equivalent candidate.
@@ -14254,78 +14299,37 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
                 }
 
                 // If u cannot be repaired, try to move the previous owner utemp away.
-                if (!repaired)
-                {
-                    for (ui vn_idx : VN[utemp])
-                    {
-                        VertexID vn_v = candidates[utemp][vn_idx];
+                // if (!repaired)
+                // {
+                //     for (ui vn_idx : VN[utemp])
+                //     {
+                //         VertexID vn_v = candidates[utemp][vn_idx];
 
-                        if (!visited_vertices[vn_v])
-                        {
-                            embedding[utemp] = vn_v;
-                            idx_embedding[utemp] = vn_idx;
+                //         if (!visited_vertices[vn_v])
+                //         {
+                //             embedding[utemp] = vn_v;
+                //             idx_embedding[utemp] = vn_idx;
 
-                            // Update occupancy and reverse mapping.
-                            visited_vertices[v] = false;
-                            embd_vertices[v] = false;
-                            reverse_embedding.erase(v);
+                //             // Update occupancy and reverse mapping.
+                //             visited_vertices[v] = false;
+                //             embd_vertices[v] = false;
+                //             reverse_embedding.erase(v);
 
-                            visited_vertices[vn_v] = true;
-                            embd_vertices[vn_v] = true;
-                            reverse_embedding[vn_v] = utemp;
+                //             visited_vertices[vn_v] = true;
+                //             embd_vertices[vn_v] = true;
+                //             reverse_embedding[vn_v] = utemp;
 
-                            repaired = true;
-                            break;
-                        }
-                    }
-                }
+                //             repaired = true;
+                //             break;
+                //         }
+                //     }
+                // }
 
                 // If neither side can be repaired, perform the normal intersection update
                 // and mark this candidate as failed.
                 if (!repaired)
                 {
-                    VNTemp.clear();
-                    VSubTemp.clear();
-
-                    int pu = 0; // VN[u]
-                    int pe = 0; // VN[utemp]
-                    int ps = 0; // VSub[utemp]
-
-                    while (pu < (int)VN[u].size() &&
-                           (pe < (int)VN[utemp].size() || ps < (int)VSub[utemp].size()))
-                    {
-                        ui x = candidates[u][VN[u][pu]];
-
-                        while (pe < (int)VN[utemp].size() &&
-                               candidates[utemp][VN[utemp][pe]] < x)
-                        {
-                            ++pe;
-                        }
-
-                        while (ps < (int)VSub[utemp].size() &&
-                               candidates[utemp][VSub[utemp][ps]] < x)
-                        {
-                            ++ps;
-                        }
-
-                        if (pe < (int)VN[utemp].size() &&
-                            candidates[utemp][VN[utemp][pe]] == x)
-                        {
-                            VNTemp.push_back(VN[utemp][pe]);
-                            ++pe;
-                        }
-
-                        if (ps < (int)VSub[utemp].size() &&
-                            candidates[utemp][VSub[utemp][ps]] == x)
-                        {
-                            VSubTemp.push_back(VSub[utemp][ps]);
-                            ++ps;
-                        }
-
-                        ++pu;
-                    }
-
-                    VN[utemp].swap(VNTemp);
+                    
                     VSub[utemp].swap(VSubTemp);
 
                     continueFlagBefore = false;
