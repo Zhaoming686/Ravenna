@@ -1625,10 +1625,10 @@ EvaluateQuery::LFTJ(const Graph *data_graph, const Graph *query_graph, ui *&node
                     PushCheckpoint(ck, next_t, point, kind);
                     next_t += interval_ms;
                 }
-                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
-                    ck.stop_reason = EnumerationStop::HardSatisfied;
-                    goto EXIT;
-                }
+                // if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                //     ck.stop_reason = EnumerationStop::HardSatisfied;
+                //     goto EXIT;
+                // }
             }
 
             if (ens > TimeL) {
@@ -8131,10 +8131,10 @@ EvaluateQuery::MMDIV(const Graph *data_graph, const Graph *query_graph, ui *&nod
                     PushCheckpoint(ck, next_t, point, kind);
                     next_t += interval_ms;
                 }
-                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
-                    ck.stop_reason = EnumerationStop::HardSatisfied;
-                    goto EXIT;
-                }
+                // if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                //     ck.stop_reason = EnumerationStop::HardSatisfied;
+                //     goto EXIT;
+                // }
             }
 
             if (ens > TimeL)
@@ -9705,10 +9705,10 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
                      
                     next_t += interval_ms;
                 }
-                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
-                    ck.stop_reason = EnumerationStop::HardSatisfied;
-                    goto EXIT;
-                }
+                // if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                //     ck.stop_reason = EnumerationStop::HardSatisfied;
+                //     goto EXIT;
+                // }
             }
 
             if (ens > TimeL)
@@ -10070,10 +10070,10 @@ EvaluateQuery::DSQLDIV(const Graph *data_graph, const Graph *query_graph, ui *&n
                                     
                                 next_t += interval_ms;
                             }
-                            if (point.hard_sat_constrained >= 1.0 - 1e-12) {
-                                ck.stop_reason = EnumerationStop::HardSatisfied;
-                                goto EXIT;
-                            }
+                            // if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                            //     ck.stop_reason = EnumerationStop::HardSatisfied;
+                            //     goto EXIT;
+                            // }
                         }
 
                         if (ens > TimeL)
@@ -10468,10 +10468,10 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                                          
                     next_t += interval_ms;
                 }
-                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
-                    ck.stop_reason = EnumerationStop::HardSatisfied;
-                    goto EXIT;
-                }
+                // if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                //     ck.stop_reason = EnumerationStop::HardSatisfied;
+                //     goto EXIT;
+                // }
             }
 
             if (ens > TimeL)
@@ -10767,10 +10767,10 @@ EvaluateQuery::LFTJDLSDIV(const Graph *data_graph, const Graph *query_graph, ui 
                              
                             next_t += interval_ms;
                         }
-                        if (point.hard_sat_constrained >= 1.0 - 1e-12) {
-                            ck.stop_reason = EnumerationStop::HardSatisfied;
-                            goto EXIT;
-                        }
+                        // if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                        //     ck.stop_reason = EnumerationStop::HardSatisfied;
+                        //     goto EXIT;
+                        // }
                     }
 
                     if (ens > TimeL)
@@ -11147,10 +11147,10 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
                     
                     next_t += interval_ms;
                 }
-                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
-                    ck.stop_reason = EnumerationStop::HardSatisfied;
-                    goto EXIT;
-                }
+                // if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                //     ck.stop_reason = EnumerationStop::HardSatisfied;
+                //     goto EXIT;
+                // }
             }
 
             if (ens > TimeL)
@@ -11279,10 +11279,10 @@ EvaluateQuery::DIVSMSQDIV(const Graph *data_graph, const Graph *query_graph, ui 
                     next_t += interval_ms;
                 }
 
-                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
-                    ck.stop_reason = EnumerationStop::HardSatisfied;
-                    goto EXIT;
-                }
+                // if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                //     ck.stop_reason = EnumerationStop::HardSatisfied;
+                //     goto EXIT;
+                // }
             }
 
             if (ens > TimeL)
@@ -12693,10 +12693,10 @@ EvaluateQuery::Ravenna(const Graph *data_graph, const Graph *query_graph, ui *&n
                      
                     next_t += interval_ms;
                 }
-                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
-                    ck.stop_reason = EnumerationStop::HardSatisfied;
-                    goto EXIT;
-                }
+                // if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                //     ck.stop_reason = EnumerationStop::HardSatisfied;
+                //     goto EXIT;
+                // }
 
             }
 
@@ -13401,10 +13401,10 @@ EvaluateQuery::RavennaForward(const Graph *data_graph, const Graph *query_graph,
                      
                     next_t += interval_ms;
                 }
-                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
-                    ck.stop_reason = EnumerationStop::HardSatisfied;
-                    goto EXIT;
-                }
+                // if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                //     ck.stop_reason = EnumerationStop::HardSatisfied;
+                //     goto EXIT;
+                // }
             }
 
             if (ens > TimeL)
@@ -14088,10 +14088,10 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
                     PushCheckpoint(ck, next_t, point, kind);
                     next_t += interval_ms;
                 }
-                if (point.hard_sat_constrained >= 1.0 - 1e-12) {
-                    ck.stop_reason = EnumerationStop::HardSatisfied;
-                    goto EXIT;
-                }
+                // if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+                //     ck.stop_reason = EnumerationStop::HardSatisfied;
+                //     goto EXIT;
+                // }
             }
 
             if (ens > TimeL)
@@ -14281,6 +14281,7 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
                 }
 
                 VN[utemp].swap(VNTemp);
+                VSub[utemp].swap(VSubTemp);
 
                 bool repaired = false;
 
@@ -14329,8 +14330,6 @@ EvaluateQuery::RavennaCheck(const Graph *data_graph, const Graph *query_graph, u
                 // and mark this candidate as failed.
                 if (!repaired)
                 {
-                    
-                    VSub[utemp].swap(VSubTemp);
 
                     continueFlagBefore = false;
 

@@ -359,10 +359,10 @@ void MatCo::FindMatCo(uint depth, std::vector<uint> m)
             EvaluateQuery::PushCheckpoint(eval_->ck, next_t, point, kind);
             next_t += interval_ms;
         }
-        if (point.hard_sat_constrained >= 1.0 - 1e-12) {
-            eval_->ck.stop_reason = EvaluateQuery::EnumerationStop::HardSatisfied;
-            return;
-        }
+        // if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+        //     eval_->ck.stop_reason = EvaluateQuery::EnumerationStop::HardSatisfied;
+        //     return;
+        // }
     }
 
     if (ens > time_limit_ms_) {
@@ -467,10 +467,10 @@ void MatCo::FindMatCo(uint depth, std::vector<uint> m)
                 EvaluateQuery::PushCheckpoint(eval_->ck, next_t, point, kind);
                 next_t += interval_ms;
             }
-            if (point.hard_sat_constrained >= 1.0 - 1e-12) {
-                eval_->ck.stop_reason = EvaluateQuery::EnumerationStop::HardSatisfied;
-                return;
-            }
+            // if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+            //     eval_->ck.stop_reason = EvaluateQuery::EnumerationStop::HardSatisfied;
+            //     return;
+            // }
         }
 
         if (ens > time_limit_ms_) {
@@ -655,10 +655,10 @@ bool MatCo::MutiExpTest(int depth,const std::vector<uint> &label_same_index, std
             EvaluateQuery::PushCheckpoint(eval_->ck, next_t, point, kind);
             next_t += interval_ms;
         }
-        if (point.hard_sat_constrained >= 1.0 - 1e-12) {
-            eval_->ck.stop_reason = EvaluateQuery::EnumerationStop::HardSatisfied;
-            return false;
-        }
+        // if (point.hard_sat_constrained >= 1.0 - 1e-12) {
+        //     eval_->ck.stop_reason = EvaluateQuery::EnumerationStop::HardSatisfied;
+        //     return false;
+        // }
     }
 
     if (ens > time_limit_ms_) {
