@@ -62,7 +62,7 @@ For detailed parameter settings, see `matching/matchingcommand.h`.
 
 ## Datasets
 
-The datasets used in the experiments of Ravenna are available on Zenodo: [https://doi.org/10.5281/zenodo.20819771](https://doi.org/10.5281/zenodo.20819771)
+The datasets used in the experiments of Ravenna are available on Zenodo: [https://doi.org/10.5281/zenodo.23862898](https://doi.org/10.5281/zenodo.23862898)
 
 The archive `datasets.zip` contains public data graphs collected from existing open graph datasets and query graphs generated for subgraph matching experiments. The generated query graphs and benchmark organization are provided to support reproducible evaluation of Ravenna.
 
